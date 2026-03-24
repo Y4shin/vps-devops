@@ -1,3 +1,14 @@
+keys:
+  - &portable_age age1tyq0ywrxqmrk0lssghdqwult6xmzlthqj3kdthu8qqqdpxew840slxmsrg
+  - &yubikey_gpg 7D5809CC28C73E4F67AA31398DC23ECC63F6BBA7
+
 creation_rules:
   - path_regex: \.sops\.yaml$
-    age: age1tyq0ywrxqmrk0lssghdqwult6xmzlthqj3kdthu8qqqdpxew840slxmsrg
+    age: *portable_age
+    pgp: *yubikey_gpg
+  - path_regex: deploy_key\.sops$
+    age: *portable_age
+    pgp: *yubikey_gpg
+  - path_regex: borg/ssh_key\.sops$
+    age: *portable_age
+    pgp: *yubikey_gpg
