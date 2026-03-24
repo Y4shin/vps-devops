@@ -17,6 +17,12 @@ tasks:
     cmds:
       - ansible-playbook ansible/bootstrap.yml -i ansible/inventory.yml
 
+  bootstrap:askpass:
+    desc: One-time server setup using password auth (for servers without SSH key)
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/bootstrap.yml -i ansible/inventory.yml --ask-pass
+
   deploy:
     desc: Deploy all services (Traefik + Witness)
     deps: [decrypt]
@@ -44,7 +50,7 @@ tasks:
   setup:debian:trixie:
     desc: Install all dependencies in WSL (Debian Trixie)
     cmds:
-      - sudo apt-get update && sudo apt-get install -y age pipx openssh-client git rsync
+      - sudo apt-get update && sudo apt-get install -y age pipx openssh-client git rsync sshpass
       - curl -fsSL https://github.com/getsops/sops/releases/download/v3.9.4/sops_3.9.4_amd64.deb -o /tmp/sops.deb && sudo dpkg -i /tmp/sops.deb && sudo apt-get install -f -y && rm /tmp/sops.deb
       - pipx install ansible --include-deps
       - pipx ensurepath
@@ -58,20 +64,35 @@ tasks:
     cmds:
       - ssh -i ~/.ssh/vps-deploy deploy@$(sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' ansible/inventory.sops.yaml)
 
+  submodule:init:reporting-tool:
+    desc: Initialize reporting-tool/app submodule using its deploy key (idempotent)
+    cmds:
+      - sops exec-file --no-fifo reporting-tool/deploy_key.sops 'chmod 600 {} && GIT_SSH_COMMAND="ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git submodule update --init -- reporting-tool/app'
+
+  submodule:update:reporting-tool:
+    desc: Update reporting-tool/app submodule using its deploy key
+    deps: [submodule:init:reporting-tool]
+    cmds:
+      - sops exec-file --no-fifo reporting-tool/deploy_key.sops 'chmod 600 {} && GIT_SSH_COMMAND="ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git submodule update --remote --merge -- reporting-tool/app'
+      - git add reporting-tool/app
+
   submodule:update:
     desc: Pull latest commits for all submodules and stage changes
     cmds:
-      - git submodule update --remote --merge
-      - git add reporting-tool/app
+      - task: submodule:update:reporting-tool
 
   submodule:update:commit:
     desc: Pull latest commits for all submodules, stage, and commit
     cmds:
-      - git submodule update --remote --merge
-      - git add reporting-tool/app
+      - task: submodule:update
       - 'git commit -m "chore: bump submodule versions"'
 
-  secrets-edit:
+  secrets:edit:
     desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
     cmds:
       - sops {{.FILE}}
+
+  secrets:updatekeys:
+    desc: Update recipients for all encrypted sops files to match .sops.yaml
+    cmds:
+      - find . -name '*.sops.yaml' -not -name '.sops.yaml' -exec sops updatekeys --yes {} \;
