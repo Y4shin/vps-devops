@@ -1,3 +1,4 @@
 *.env
 *.key
 ansible/inventory.yml
+.direnv/
