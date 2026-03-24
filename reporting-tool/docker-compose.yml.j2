@@ -1,0 +1,27 @@
+services:
+  app:
+    build: ./app
+    env_file: .env
+    restart: unless-stopped
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - db_data:/data
+      - uploads:/app/uploads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reporting-tool.rule=Host(`witness.{{ secrets.domain }}`)"
+      - "traefik.http.routers.reporting-tool.entrypoints=websecure"
+      - "traefik.http.routers.reporting-tool.tls.certresolver=letsencrypt"
+      - "traefik.http.services.reporting-tool.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal: {}
+
+volumes:
+  db_data:
+  uploads:

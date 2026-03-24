@@ -1,0 +1,10 @@
+---
+# Runs bootstrap + site in sequence.
+# Use this when you've changed infrastructure config (packages, firewall, etc.)
+# and want to apply everything in one go.
+#
+# For normal app deploys, use site.yml directly.
+#
+# Usage: ansible-playbook ansible/all.yml -i ansible/inventory.yml
+- import_playbook: bootstrap.yml
+- import_playbook: site.yml

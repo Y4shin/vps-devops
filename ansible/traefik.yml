@@ -1,0 +1,52 @@
+---
+- name: Deploy Traefik
+  hosts: vps
+  become: true
+  become_user: deploy
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+
+  tasks:
+    - name: Set secrets variable
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
+        traefik_secrets: "{{ lookup('community.sops.sops', repo_root + '/traefik/.env.sops.yaml') | from_yaml }}"
+      no_log: true
+
+    - name: Create Traefik directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/traefik
+        state: directory
+        mode: "0755"
+
+    - name: Render Traefik config
+      ansible.builtin.template:
+        src: "{{ repo_root }}/traefik/traefik.yml.j2"
+        dest: /opt/vps-devops/traefik/traefik.yml
+        mode: "0644"
+
+    - name: Render Traefik compose file
+      ansible.builtin.template:
+        src: "{{ repo_root }}/traefik/docker-compose.yml.j2"
+        dest: /opt/vps-devops/traefik/docker-compose.yml
+        mode: "0644"
+
+    - name: Write Traefik .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/traefik/.env
+        content: |
+          TRAEFIK_DASHBOARD_USER={{ traefik_secrets.TRAEFIK_DASHBOARD_USER }}
+          TRAEFIK_DASHBOARD_PASSWORD_HASH={{ traefik_secrets.TRAEFIK_DASHBOARD_PASSWORD_HASH | replace('$', '$$') }}
+        mode: "0600"
+      no_log: true
+
+    - name: Ensure Traefik is running
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/traefik
+        state: present
+
+    - name: Remove Traefik .env
+      ansible.builtin.file:
+        path: /opt/vps-devops/traefik/.env
+        state: absent

@@ -1,0 +1,122 @@
+---
+- name: Deploy Witness
+  hosts: vps
+  become: true
+  become_user: deploy
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+
+  tasks:
+    - name: Set secrets variables
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
+        app_secrets: "{{ lookup('community.sops.sops', repo_root + '/reporting-tool/.env.sops.yaml') | from_yaml }}"
+      no_log: true
+
+    # -------------------------------------------------------------------------
+    # Borg — initialize once
+    # -------------------------------------------------------------------------
+    - name: Check if Borg repo is already initialized
+      ansible.builtin.stat:
+        path: /opt/borg-backups/reporting-tool/config
+      register: borg_config
+
+    - name: Initialize Borg repository
+      ansible.builtin.command:
+        cmd: borg init --encryption=repokey /opt/borg-backups/reporting-tool
+      environment:
+        BORG_PASSPHRASE: ""
+      when: not borg_config.stat.exists
+
+    # -------------------------------------------------------------------------
+    # Witness — only deploy if commit has changed
+    # -------------------------------------------------------------------------
+    - name: Get current local submodule commit
+      ansible.builtin.command:
+        cmd: git rev-parse HEAD
+        chdir: "{{ repo_root }}/reporting-tool/app"
+      register: current_commit
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Get last deployed commit from server
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/reporting-tool/.last-deployed-commit
+      register: last_commit_file
+      failed_when: false
+
+    - name: Set last deployed commit fact
+      ansible.builtin.set_fact:
+        last_commit: "{{ last_commit_file.content | default('') | b64decode | trim }}"
+
+    - name: Create witness directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/reporting-tool
+        state: directory
+        mode: "0755"
+
+    - name: Render witness compose file
+      ansible.builtin.template:
+        src: "{{ repo_root }}/reporting-tool/docker-compose.yml.j2"
+        dest: /opt/vps-devops/reporting-tool/docker-compose.yml
+        mode: "0644"
+
+    - name: Sync app source to server
+      ansible.posix.synchronize:
+        src: "{{ repo_root }}/reporting-tool/app/"
+        dest: /opt/vps-devops/reporting-tool/app/
+        delete: true
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=.git"
+      when: current_commit.stdout != last_commit
+
+    - name: Copy backup script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/scripts/backup.sh"
+        dest: /opt/vps-devops/scripts/backup.sh
+        mode: "0755"
+
+    - name: Backup database before deploy
+      ansible.builtin.command:
+        cmd: bash /opt/vps-devops/scripts/backup.sh
+      when: current_commit.stdout != last_commit and last_commit != ""
+
+    - name: Write app .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/reporting-tool/.env
+        content: |
+          ORIGIN=https://witness.{{ secrets.domain }}
+          DATABASE_URL=file:/data/app.db
+          SESSION_SECRET={{ app_secrets.SESSION_SECRET }}
+          ADMIN_PASSWORD={{ app_secrets.ADMIN_PASSWORD }}
+          LOG_PRETTY=false
+          S3_ENDPOINT={{ secrets.s3_endpoint }}
+          S3_BUCKET={{ secrets.s3_bucket }}
+          S3_REGION={{ secrets.s3_region }}
+          S3_ACCESS_KEY_ID={{ app_secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY={{ app_secrets.S3_SECRET_ACCESS_KEY }}
+        mode: "0600"
+      no_log: true
+      when: current_commit.stdout != last_commit
+
+    - name: Build and start witness
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/reporting-tool
+        build: always
+        state: present
+      when: current_commit.stdout != last_commit
+
+    - name: Record deployed commit
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/reporting-tool/.last-deployed-commit
+        content: "{{ current_commit.stdout }}"
+        mode: "0644"
+      when: current_commit.stdout != last_commit
+
+    - name: Remove app .env
+      ansible.builtin.file:
+        path: /opt/vps-devops/reporting-tool/.env
+        state: absent

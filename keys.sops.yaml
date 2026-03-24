@@ -1,0 +1,21 @@
+deploy_ssh_private_key: ENC[AES256_GCM,data:Q7k9azmAN0sMoovisW00zw6UQV5q+7GsXlclkGk9gr03qLpIO6N/GzsUcGVJ8h+FcT8RbgI/J3aF7x6XQ5tl52YOU2c5CcrvVnXx5BAdEH7i6fAHqDX5/NM9bOPUGhAj9u2W+9Na0LTn7xUi7ujqI1FQtaVxhRjEI93UJhcFpnnf99j9ZVsAX9ACitCwww2MM0fDpwxCpdVDQ9Vvs4/XlOsmiViw/yoZagHuUhtYxla8PR9p/TsYpFUWN/r+UqmVTq+RoAOxIeWmEKNDxNqdbgzSXV0dsLMwEk+hU28xXRN5zEH/LTHviDcuUwYmQTTg7WLuO5j6uXT8sxsu+5spl53LGfRGf7OImVxGQChnZLh6i3wfhyvYBpCsDKZdEuX8F9uIiXTvVASo07o478T4U7va6K5L+WPB10e7CHisKFGtwJfuIBFT7qC7oyoTlqqgPeaAS4FBdkYVNyt33+1IwmgSN/Fkq/tOvFQ3CYgT4MA5ML6o/MIjr2+idLDPNsCLXPUmiRIydT8FZOIkwc8V,iv:9QS7jim+kRudJzW1m68F7bIbVIdlH81BfpEA8wGbw8Y=,tag:dVLiAF8RtWEwnc/03k81HA==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age:
+        - recipient: age1tyq0ywrxqmrk0lssghdqwult6xmzlthqj3kdthu8qqqdpxew840slxmsrg
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB3SEFTMXNONDJqdHRjV3Vy
+            WEpKNHZoUE5hV0dkMUtieUlCdEtHR2tkZWd3ClFQbkJEekQrT3ZtYjhHQWUxcWlH
+            YmZrR3l1ZWQ5TUxLSFRXamlPQ3h3azAKLS0tIGdSRU96VkhHLzJ6OUVyRXVjemY4
+            WjBxdzVUY082MHlYTVlnKzBnN0ZZN1UK0gIblSNZlLGKjncCaS7UsKXb383c7pwC
+            FphggD1qWLBFXyLVENCU7QcMx57TN11E2ANvZht7FuUshtHZkTn6lg==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-03-23T23:39:10Z"
+    mac: ENC[AES256_GCM,data:Qa8OvStQ5H0FLkRS5OwjxrVTJKOKDuM7lr7HsG7790AaRXnqTN+l8+o4PfZ0jt/YhpdhvIaF4hEudltz66Z8y/IC42jmJ7cadCLOgk6eEtCaX+lKaK/ZHdF4YgNbqDDIIS3QEnUjnSe4B4TauKzty2D07gqOEzUSA/4kfVH0b/4=,iv:mEgxqoANtMmQwgAcl2kXmHGZI3C291mjLSOrr8l6WBQ=,tag:gXPSCw3zr8sZ1rQlTqpXNg==,type:str]
+    pgp: []
+    unencrypted_suffix: _unencrypted
+    version: 3.7.3

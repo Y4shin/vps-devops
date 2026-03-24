@@ -1,0 +1,64 @@
+version: '3'
+
+env:
+  ANSIBLE_CONFIG: ./ansible.cfg
+
+tasks:
+  decrypt:
+    desc: Decrypt inventory and SSH key
+    cmds:
+      - sops -d ansible/inventory.sops.yaml > ansible/inventory.yml
+      - sops -d --extract '["deploy_ssh_private_key"]' keys.sops.yaml > ~/.ssh/vps-deploy
+      - chmod 600 ~/.ssh/vps-deploy
+
+  bootstrap:
+    desc: One-time server setup (run on a fresh VPS)
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/bootstrap.yml -i ansible/inventory.yml
+
+  deploy:
+    desc: Deploy all services (Traefik + Witness)
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/site.yml -i ansible/inventory.yml
+
+  deploy:traefik:
+    desc: Deploy Traefik only
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/traefik.yml -i ansible/inventory.yml
+
+  deploy:witness:
+    desc: Deploy Witness only
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/witness.yml -i ansible/inventory.yml
+
+  all:
+    desc: Bootstrap + deploy in one go
+    deps: [decrypt]
+    cmds:
+      - ansible-playbook ansible/all.yml -i ansible/inventory.yml
+
+  setup:debian:trixie:
+    desc: Install all dependencies in WSL (Debian Trixie)
+    cmds:
+      - sudo apt-get update && sudo apt-get install -y age pipx openssh-client git rsync
+      - curl -fsSL https://github.com/getsops/sops/releases/download/v3.9.4/sops_3.9.4_amd64.deb -o /tmp/sops.deb && sudo dpkg -i /tmp/sops.deb && sudo apt-get install -f -y && rm /tmp/sops.deb
+      - pipx install ansible --include-deps
+      - pipx ensurepath
+      - ~/.local/bin/ansible-galaxy collection install --upgrade community.sops community.docker community.general ansible.posix
+      - mkdir -p ~/.config/sops/age && cp /mnt/c/Users/Patric/AppData/Roaming/sops/age/keys.txt ~/.config/sops/age/keys.txt
+      - mkdir -p ~/.ssh
+
+  ssh:
+    desc: SSH into the server as deploy user
+    deps: [decrypt]
+    cmds:
+      - ssh -i ~/.ssh/vps-deploy deploy@$(sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' ansible/inventory.sops.yaml)
+
+  secrets-edit:
+    desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
+    cmds:
+      - sops {{.FILE}}

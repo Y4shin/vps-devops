@@ -1,0 +1,4 @@
+---
+# Deploys all services. Run with: task deploy
+- import_playbook: traefik.yml
+- import_playbook: witness.yml
