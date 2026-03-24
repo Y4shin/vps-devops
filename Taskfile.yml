@@ -58,6 +58,19 @@ tasks:
     cmds:
       - ssh -i ~/.ssh/vps-deploy deploy@$(sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' ansible/inventory.sops.yaml)
 
+  submodule:update:
+    desc: Pull latest commits for all submodules and stage changes
+    cmds:
+      - git submodule update --remote --merge
+      - git add reporting-tool/app
+
+  submodule:update:commit:
+    desc: Pull latest commits for all submodules, stage, and commit
+    cmds:
+      - git submodule update --remote --merge
+      - git add reporting-tool/app
+      - 'git commit -m "chore: bump submodule versions"'
+
   secrets-edit:
     desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
     cmds:
