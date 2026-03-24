@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BORG_REPO="/opt/borg-backups/reporting-tool"
+# shellcheck source=/dev/null
+source /opt/vps-devops/scripts/borg-env
+
 DB_VOLUME="reporting-tool_db_data"
 
 # Dump a consistent snapshot using SQLite's online backup API.

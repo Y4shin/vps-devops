@@ -252,9 +252,9 @@
         group: deploy
         mode: "0755"
 
-    - name: Create Borg backup directory
+    - name: Create /opt/vps-devops/reporting-tool
       ansible.builtin.file:
-        path: /opt/borg-backups/reporting-tool
+        path: /opt/vps-devops/reporting-tool
         state: directory
         owner: deploy
         group: deploy

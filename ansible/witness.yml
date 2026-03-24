@@ -6,6 +6,7 @@
 
   vars:
     repo_root: "{{ playbook_dir }}/.."
+    borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
   tasks:
     - name: Set secrets variables
@@ -15,19 +16,65 @@
       no_log: true
 
     # -------------------------------------------------------------------------
-    # Borg — initialize once
+    # Borg — SSH key, env file, and repo initialization
     # -------------------------------------------------------------------------
+    - name: Set Borg repo URL
+      ansible.builtin.set_fact:
+        borg_repo: "ssh://{{ secrets.borg_user }}@{{ secrets.borg_host }}:23/{{ app_secrets.borg_path }}"
+      no_log: true
+
+    - name: Decrypt Borg SSH key to local temp file
+      ansible.builtin.shell:
+        cmd: sops --output-type binary decrypt {{ repo_root }}/borg/ssh_key.sops > /tmp/borg_key_deploy
+      delegate_to: localhost
+      become: false
+      no_log: true
+      changed_when: false
+
+    - name: Deploy Borg SSH key
+      ansible.builtin.copy:
+        src: /tmp/borg_key_deploy
+        dest: /home/deploy/.ssh/borg_key
+        mode: "0600"
+      no_log: true
+
+    - name: Remove local temp Borg SSH key
+      ansible.builtin.file:
+        path: /tmp/borg_key_deploy
+        state: absent
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Write Borg environment file
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/scripts/borg-env
+        content: |
+          export BORG_REPO="{{ borg_repo }}"
+          export BORG_PASSPHRASE="{{ app_secrets.borg_passphrase }}"
+          export BORG_RSH="{{ borg_rsh }}"
+        mode: "0600"
+      no_log: true
+
     - name: Check if Borg repo is already initialized
-      ansible.builtin.stat:
-        path: /opt/borg-backups/reporting-tool/config
-      register: borg_config
+      ansible.builtin.command:
+        cmd: borg info {{ borg_repo }}
+      environment:
+        BORG_PASSPHRASE: "{{ app_secrets.borg_passphrase }}"
+        BORG_RSH: "{{ borg_rsh }}"
+      register: borg_info
+      failed_when: false
+      changed_when: false
+      no_log: true
 
     - name: Initialize Borg repository
       ansible.builtin.command:
-        cmd: borg init --encryption=repokey /opt/borg-backups/reporting-tool
+        cmd: borg init --encryption=repokey {{ borg_repo }}
       environment:
-        BORG_PASSPHRASE: ""
-      when: not borg_config.stat.exists
+        BORG_PASSPHRASE: "{{ app_secrets.borg_passphrase }}"
+        BORG_RSH: "{{ borg_rsh }}"
+      when: borg_info.rc != 0
+      no_log: true
 
     # -------------------------------------------------------------------------
     # Witness — only deploy if commit has changed
@@ -71,6 +118,7 @@
         rsync_opts:
           - "--exclude=node_modules"
           - "--exclude=.git"
+      become: false
       when: current_commit.stdout != last_commit
 
     - name: Copy backup script
