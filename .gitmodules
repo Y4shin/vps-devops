@@ -1,3 +1,6 @@
 [submodule "reporting-tool/app"]
 	path = reporting-tool/app
 	url = git@github.com:Y4shin/reporting-tool.git
+[submodule "conference-tool/app"]
+	path = conference-tool/app
+	url = git@github.com:Y4shin/conference-tool.git
