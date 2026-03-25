@@ -32,6 +32,7 @@ remote_script_quoted="$(printf '%q' "$remote_script")"
 
 (
   cd "$repo_root"
-  sops exec-file --no-fifo deploy_ssh_private_key.sops \
-    "chmod 600 {} && ssh -t -o StrictHostKeyChecking=accept-new -i {} deploy@${host} bash -lc ${remote_script_quoted}"
+  SOPS_AGE_KEY_FILE="$age_key_file" \
+    sops exec-file --no-fifo deploy_ssh_private_key.sops \
+    "chmod 600 {} && ssh -t -o StrictHostKeyChecking=accept-new -i {} deploy@${host} ${remote_script_quoted}"
 )

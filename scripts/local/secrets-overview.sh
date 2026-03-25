@@ -33,4 +33,13 @@ fi
   echo "Traefik"
   echo "======="
   printf 'Dashboard user: %s\n' "$(sops -d --extract '["TRAEFIK_DASHBOARD_USER"]' traefik/.env.sops.yaml)"
+  if [ -f authentik/.env.sops.yaml ]; then
+    echo
+    echo "Authentik"
+    echo "========="
+    printf 'Bootstrap password: %s\n' "$(sops -d --extract '["AUTHENTIK_BOOTSTRAP_PASSWORD"]' authentik/.env.sops.yaml)"
+    if sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Bootstrap email: %s\n' "$(sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml)"
+    fi
+  fi
 } | "$pager"

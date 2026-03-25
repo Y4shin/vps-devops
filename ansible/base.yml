@@ -8,6 +8,10 @@
   become: true
 
   vars:
+    deploy_user: deploy
+    deploy_group: deploy
+    deploy_uid: 999
+    deploy_gid: 999
     sops_version: "3.9.4"
     awscli_arch: "{{ 'x86_64' if ansible_facts['architecture'] == 'x86_64' else 'aarch64' }}"
 
@@ -228,9 +232,14 @@
 
     - name: Add deploy user to docker group
       ansible.builtin.user:
-        name: deploy
+        name: "{{ deploy_user }}"
+        uid: "{{ deploy_uid }}"
+        group: "{{ deploy_group }}"
         groups: docker
         append: true
+        system: true
+        create_home: true
+        shell: /bin/bash
 
     - name: Detect system architecture for sops
       ansible.builtin.set_fact:
@@ -251,24 +260,24 @@
       ansible.builtin.file:
         path: /opt/vps-devops
         state: directory
-        owner: deploy
-        group: deploy
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
         mode: "0755"
 
     - name: Create /opt/vps-devops/scripts
       ansible.builtin.file:
         path: /opt/vps-devops/scripts
         state: directory
-        owner: deploy
-        group: deploy
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
         mode: "0755"
 
     - name: Create /opt/vps-devops/reporting-tool
       ansible.builtin.file:
         path: /opt/vps-devops/reporting-tool
         state: directory
-        owner: deploy
-        group: deploy
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
         mode: "0755"
 
   handlers:
@@ -281,3 +290,17 @@
       ansible.builtin.service:
         name: fail2ban
         state: restarted
+    - name: Ensure deploy group uses the managed GID
+      ansible.builtin.group:
+        name: "{{ deploy_group }}"
+        gid: "{{ deploy_gid }}"
+        system: true
+
+    - name: Ensure deploy user uses the managed UID/GID
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        uid: "{{ deploy_uid }}"
+        group: "{{ deploy_group }}"
+        system: true
+        create_home: true
+        shell: /bin/bash

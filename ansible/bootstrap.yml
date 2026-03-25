@@ -8,12 +8,24 @@
   become: true
 
   vars:
+    deploy_user: deploy
+    deploy_group: deploy
+    deploy_uid: 999
+    deploy_gid: 999
     deploy_ssh_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFzTDe2mjcDJ5zRtx00PQXplk/TPKcLr8H5xgMofqbnP vps-deploy"
 
   tasks:
+    - name: Create deploy group
+      ansible.builtin.group:
+        name: "{{ deploy_group }}"
+        gid: "{{ deploy_gid }}"
+        system: true
+
     - name: Create deploy user
       ansible.builtin.user:
-        name: deploy
+        name: "{{ deploy_user }}"
+        uid: "{{ deploy_uid }}"
+        group: "{{ deploy_group }}"
         system: true
         create_home: true
         shell: /bin/bash
@@ -22,12 +34,12 @@
       ansible.builtin.file:
         path: /home/deploy/.ssh
         state: directory
-        owner: deploy
-        group: deploy
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
         mode: "0700"
 
     - name: Add deploy public key
       ansible.posix.authorized_key:
-        user: deploy
+        user: "{{ deploy_user }}"
         key: "{{ deploy_ssh_pubkey }}"
         state: present

@@ -1,0 +1,178 @@
+---
+- name: Deploy Authentik
+  hosts: vps
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    authentik_version: "2026.2.1"
+
+  tasks:
+    - name: Check whether Authentik secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/authentik/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: authentik_secrets_file
+
+    - name: Require Authentik secrets file
+      ansible.builtin.fail:
+        msg: >-
+          Create {{ repo_root }}/authentik/.env.sops.yaml with at least
+          AUTHENTIK_BOOTSTRAP_PASSWORD before deploying Authentik.
+      when: not authentik_secrets_file.stat.exists
+
+    - name: Set secrets variable
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
+        authentik_secrets: "{{ lookup('community.sops.sops', repo_root + '/authentik/.env.sops.yaml') | from_yaml }}"
+      no_log: true
+
+    - name: Create Authentik directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/authentik
+        state: directory
+        mode: "0755"
+
+    - name: Read deploy user entry
+      ansible.builtin.command:
+        cmd: getent passwd deploy
+      register: authentik_deploy_passwd
+      changed_when: false
+
+    - name: Read deploy group entry
+      ansible.builtin.command:
+        cmd: getent group deploy
+      register: authentik_deploy_group
+      changed_when: false
+
+    - name: Set deploy UID/GID facts for Authentik
+      ansible.builtin.set_fact:
+        authentik_deploy_uid: "{{ authentik_deploy_passwd.stdout.split(':')[2] }}"
+        authentik_deploy_gid: "{{ authentik_deploy_group.stdout.split(':')[2] }}"
+
+    - name: Create Authentik data directories
+      ansible.builtin.file:
+        path: "/opt/vps-devops/authentik/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - data
+        - certs
+        - custom-templates
+
+    - name: Ensure Authentik writable directories use the service UID
+      ansible.builtin.file:
+        path: "/opt/vps-devops/authentik/{{ item }}"
+        state: directory
+        owner: "{{ authentik_deploy_uid }}"
+        group: "{{ authentik_deploy_gid }}"
+        mode: "{{ '0775' if item != 'certs' else '0755' }}"
+      loop:
+        - data
+        - certs
+        - custom-templates
+
+    - name: Ensure proxy network exists
+      community.docker.docker_network:
+        name: proxy
+        ipam_config:
+          - subnet: "{{ secrets.proxy_subnet }}"
+      register: authentik_proxy_network_result
+
+    - name: Render Authentik compose file
+      ansible.builtin.template:
+        src: "{{ repo_root }}/authentik/docker-compose.yml.j2"
+        dest: /opt/vps-devops/authentik/docker-compose.yml
+        mode: "0644"
+      register: authentik_compose_result
+
+    - name: Check whether Authentik env file already exists
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/.env
+      register: authentik_env_file
+
+    - name: Read existing Authentik env file
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/authentik/.env
+      register: authentik_env_existing_file
+      when: authentik_env_file.stat.exists
+      no_log: true
+
+    - name: Set existing Authentik env content
+      ansible.builtin.set_fact:
+        authentik_env_existing_content: "{{ authentik_env_existing_file.content | b64decode }}"
+      when: authentik_env_file.stat.exists
+      no_log: true
+
+    - name: Generate PostgreSQL password for Authentik when missing
+      ansible.builtin.set_fact:
+        authentik_pg_pass: "{{ lookup('ansible.builtin.password', '/dev/null length=48 chars=ascii_letters,digits') }}"
+      when:
+        - not authentik_env_file.stat.exists
+          or (authentik_env_existing_content | default('') | regex_findall('(?m)^PG_PASS=(.+)$') | first | default('', true)) == ''
+      no_log: true
+
+    - name: Reuse existing PostgreSQL password for Authentik
+      ansible.builtin.set_fact:
+        authentik_pg_pass: "{{ authentik_env_existing_content | regex_findall('(?m)^PG_PASS=(.+)$') | first }}"
+      when:
+        - authentik_env_file.stat.exists
+        - (authentik_env_existing_content | default('') | regex_findall('(?m)^PG_PASS=(.+)$') | first | default('', true)) != ''
+      no_log: true
+
+    - name: Generate Authentik secret key when missing
+      ansible.builtin.set_fact:
+        authentik_secret_key: "{{ lookup('ansible.builtin.password', '/dev/null length=80 chars=ascii_letters,digits') }}"
+      when:
+        - not authentik_env_file.stat.exists
+          or (authentik_env_existing_content | default('') | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first | default('', true)) == ''
+      no_log: true
+
+    - name: Reuse existing Authentik secret key
+      ansible.builtin.set_fact:
+        authentik_secret_key: "{{ authentik_env_existing_content | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first }}"
+      when:
+        - authentik_env_file.stat.exists
+        - (authentik_env_existing_content | default('') | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first | default('', true)) != ''
+      no_log: true
+
+    - name: Write Authentik environment file
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/authentik/.env
+        content: |
+          PG_PASS={{ authentik_pg_pass }}
+          AUTHENTIK_SECRET_KEY={{ authentik_secret_key }}
+          AUTHENTIK_BOOTSTRAP_PASSWORD={{ authentik_secrets.AUTHENTIK_BOOTSTRAP_PASSWORD }}
+          {% if authentik_secrets.AUTHENTIK_BOOTSTRAP_EMAIL is defined %}
+          AUTHENTIK_BOOTSTRAP_EMAIL={{ authentik_secrets.AUTHENTIK_BOOTSTRAP_EMAIL }}
+          {% endif %}
+          AUTHENTIK_ERROR_REPORTING__ENABLED=true
+          AUTHENTIK_IMAGE=ghcr.io/goauthentik/server
+          AUTHENTIK_TAG={{ authentik_version }}
+          AUTHENTIK_UID={{ authentik_deploy_uid }}
+          AUTHENTIK_GID={{ authentik_deploy_gid }}
+        mode: "0600"
+      register: authentik_env_result
+      no_log: true
+
+    - name: Set Authentik recreate fact
+      ansible.builtin.set_fact:
+        authentik_needs_recreate: >-
+          {{
+            authentik_proxy_network_result.changed
+            or authentik_compose_result.changed
+            or (authentik_env_result.changed | default(false))
+          }}
+
+    - name: Recreate Authentik when required
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/authentik
+        state: present
+        recreate: always
+      when: authentik_needs_recreate
+
+    - name: Ensure Authentik is running without forced recreate
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/authentik
+        state: present
+      when: not authentik_needs_recreate

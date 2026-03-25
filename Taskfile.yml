@@ -41,6 +41,13 @@ tasks:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/traefik.yml
 
+  deploy:authentik:
+    desc: Prepare Authentik only
+    deps: [decrypt]
+    cmds:
+      - defer: rm -f ansible/inventory.yml
+      - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
+
   deploy:witness:
     desc: Deploy Witness only
     deps: [decrypt]
@@ -133,6 +140,11 @@ tasks:
     desc: SSH into the server and cd to the Traefik compose directory
     cmds:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/traefik
+
+  ssh:authentik:
+    desc: SSH into the server and cd to the Authentik directory
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/authentik
 
   ssh:witness:
     desc: SSH into the server and cd to the Witness compose directory
@@ -230,6 +242,16 @@ tasks:
     desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
     cmds:
       - sops {{.FILE}}
+
+  secrets:extract:
+    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=secrets.sops.yaml TARGET='[\"domain\"]'"
+    preconditions:
+      - sh: test -n "{{.FILE}}"
+        msg: secrets:extract requires FILE=...
+      - sh: test -n "{{.TARGET}}"
+        msg: secrets:extract requires TARGET=...
+    cmds:
+      - sops -d --extract '{{.TARGET}}' {{.FILE}}
 
   secrets:overview:
     desc: Show a curated overview of selected decrypted secret values in a pager
