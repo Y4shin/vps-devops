@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+.envrc text eol=lf
+*.lock text eol=lf
+*.nix text eol=lf
+*.pub text eol=lf
+*.sh text eol=lf
+*.sops text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
