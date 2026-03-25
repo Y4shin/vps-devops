@@ -3,7 +3,7 @@ keys:
   - &yubikey_gpg 7D5809CC28C73E4F67AA31398DC23ECC63F6BBA7
 
 creation_rules:
-  - path_regex: \.sops\.yaml$
+  - path_regex: .+\.sops\.yaml$
     age: *portable_age
     pgp: *yubikey_gpg
   - path_regex: deploy_key\.sops$

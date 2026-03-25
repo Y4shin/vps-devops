@@ -1,0 +1,4 @@
+pre-commit:
+  commands:
+    check-sops-encrypted:
+      run: bash scripts/local/check-sops-encrypted.sh
