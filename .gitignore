@@ -2,3 +2,4 @@
 *.key
 ansible/inventory.yml
 .direnv/
+collections/

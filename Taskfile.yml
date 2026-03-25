@@ -2,6 +2,7 @@ version: '3'
 
 env:
   ANSIBLE_CONFIG: ./ansible.cfg
+  SOPS_AGE_KEY_FILE: ./age.key
 
 tasks:
   decrypt:
@@ -47,16 +48,169 @@ tasks:
     cmds:
       - ansible-playbook ansible/all.yml -i ansible/inventory.yml
 
-  setup:debian:trixie:
-    desc: Install all dependencies in WSL (Debian Trixie)
+  install:sops:deb:
+    desc: Install sops via .deb if not present or outdated (apt-based distros only)
+    silent: true
+    vars:
+      SOPS_VERSION: v3.12.2
     cmds:
-      - sudo apt-get update && sudo apt-get install -y age pipx openssh-client git rsync sshpass
-      - curl -fsSL https://github.com/getsops/sops/releases/download/v3.9.4/sops_3.9.4_amd64.deb -o /tmp/sops.deb && sudo dpkg -i /tmp/sops.deb && sudo apt-get install -f -y && rm /tmp/sops.deb
+      - |
+        REQUIRED="{{.SOPS_VERSION}}"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  SOPS_ARCH="amd64" ;;
+          aarch64) SOPS_ARCH="arm64" ;;
+          armv7l)  SOPS_ARCH="armhf" ;;
+          *)       echo "⚠️  Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+
+        need_install=false
+        if ! command -v sops &>/dev/null; then
+          echo "📦 sops not found, installing ${REQUIRED}..."
+          need_install=true
+        else
+          CURRENT=$(sops --version 2>&1 | grep -oP 'v?\d+\.\d+\.\d+' | head -1)
+          CURRENT="v${CURRENT#v}"
+          if [ "$(printf '%s\n' "$REQUIRED" "$CURRENT" | sort -V | head -1)" != "$REQUIRED" ]; then
+            echo "📦 sops ${CURRENT} is older than ${REQUIRED}, upgrading..."
+            need_install=true
+          else
+            echo "✅ sops ${CURRENT} already installed and up to date."
+          fi
+        fi
+
+        if [ "$need_install" = true ]; then
+          VERSION_BARE="${REQUIRED#v}"
+          curl -fsSL "https://github.com/getsops/sops/releases/download/${REQUIRED}/sops_${VERSION_BARE}_${SOPS_ARCH}.deb" -o /tmp/sops.deb
+          sudo dpkg -i /tmp/sops.deb
+          sudo apt-get install -f -y
+          rm /tmp/sops.deb
+          echo "✅ sops ${REQUIRED} installed."
+        fi
+
+  install:lefthook:deb:
+    desc: Install lefthook via .deb if not present or outdated (apt-based distros only)
+    silent: true
+    vars:
+      LEFTHOOK_VERSION: v2.1.4
+    cmds:
+      - |
+        REQUIRED="{{.LEFTHOOK_VERSION}}"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  LH_ARCH="amd64" ;;
+          aarch64) LH_ARCH="arm64" ;;
+          armv7l)  LH_ARCH="armhf" ;;
+          *)       echo "⚠️  Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+
+        need_install=false
+        if ! command -v lefthook &>/dev/null; then
+          echo "📦 lefthook not found, installing ${REQUIRED}..."
+          need_install=true
+        else
+          CURRENT=$(lefthook version 2>&1 | grep -oP 'v?\d+\.\d+\.\d+' | head -1)
+          CURRENT="v${CURRENT#v}"
+          if [ "$(printf '%s\n' "$REQUIRED" "$CURRENT" | sort -V | head -1)" != "$REQUIRED" ]; then
+            echo "📦 lefthook ${CURRENT} is older than ${REQUIRED}, upgrading..."
+            need_install=true
+          else
+            echo "✅ lefthook ${CURRENT} already installed and up to date."
+          fi
+        fi
+
+        if [ "$need_install" = true ]; then
+          VERSION_BARE="${REQUIRED#v}"
+          curl -fsSL "https://github.com/evilmartians/lefthook/releases/download/${REQUIRED}/lefthook_${VERSION_BARE}_${LH_ARCH}.deb" -o /tmp/lefthook.deb
+          sudo dpkg -i /tmp/lefthook.deb
+          sudo apt-get install -f -y
+          rm /tmp/lefthook.deb
+          echo "✅ lefthook ${REQUIRED} installed."
+        fi
+
+  install:yq:
+    desc: Install yq (Mike Farah) if not present or outdated
+    silent: true
+    vars:
+      YQ_VERSION: v4.52.4
+    cmds:
+      - |
+        REQUIRED="{{.YQ_VERSION}}"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64)  YQ_ARCH="amd64" ;;
+          aarch64) YQ_ARCH="arm64" ;;
+          armv7l)  YQ_ARCH="arm" ;;
+          *)       echo "⚠️  Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+
+        need_install=false
+        if ! command -v yq &>/dev/null; then
+          echo "📦 yq not found, installing ${REQUIRED}..."
+          need_install=true
+        else
+          CURRENT=$(yq --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1)
+          if [ "$(printf '%s\n' "$REQUIRED" "$CURRENT" | sort -V | head -1)" != "$REQUIRED" ]; then
+            echo "📦 yq ${CURRENT} is older than ${REQUIRED}, upgrading..."
+            need_install=true
+          else
+            echo "✅ yq ${CURRENT} already installed and up to date."
+          fi
+        fi
+
+        if [ "$need_install" = true ]; then
+          curl -fsSL "https://github.com/mikefarah/yq/releases/download/${REQUIRED}/yq_linux_${YQ_ARCH}" -o /tmp/yq
+          sudo install -m 755 /tmp/yq /usr/local/bin/yq
+          rm /tmp/yq
+          echo "✅ yq ${REQUIRED} installed."
+        fi
+
+  setup:debian:trixie:
+    desc: Install all dependencies for the control node (Debian Trixie)
+    silent: true
+    vars:
+      ANSIBLE_COLLECTIONS: community.sops community.docker community.general ansible.posix
+    cmds:
+      - echo "📦 Installing system packages..."
+      - sudo apt-get update && sudo apt-get install -y age gnupg pipx openssh-client git rsync sshpass
+      - task: install:sops:deb
+      - task: install:yq
+      - task: install:lefthook:deb
+      - echo "🐍 Installing Ansible via pipx..."
       - pipx install ansible --include-deps
       - pipx ensurepath
-      - ~/.local/bin/ansible-galaxy collection install --upgrade community.sops community.docker community.general ansible.posix
-      - mkdir -p ~/.config/sops/age && cp /mnt/c/Users/Patric/AppData/Roaming/sops/age/keys.txt ~/.config/sops/age/keys.txt
-      - mkdir -p ~/.ssh
+      - echo "🔌 Installing Ansible collections..."
+      - ~/.local/bin/ansible-galaxy collection install --upgrade --collections-path ./collections {{.ANSIBLE_COLLECTIONS}}
+      - echo "🪝 Installing git hooks..."
+      - lefthook install
+      - task: check:unix
+
+  check:unix:key:
+    desc: Check age key is present in repo dir and fix its permissions
+    silent: true
+    cmds:
+      - |
+        AGE_PUBKEY=$(grep -oP 'age1[a-z0-9]+' .sops.yaml | head -1)
+        if [ ! -f age.key ]; then
+          echo "⚠️  Age key not found at $(pwd)/age.key"
+          echo ""
+          echo "Copy the age private key with public key:"
+          echo "  $AGE_PUBKEY"
+          echo "to:"
+          echo "  $(pwd)/age.key"
+          exit 1
+        fi
+        chmod 600 age.key
+        echo "🔑 Age key present and permissions set to 600."
+
+  check:unix:
+    desc: Run all Unix environment checks
+    silent: true
+    cmds:
+      - echo "🔍 Checking environment..."
+      - lefthook install
+      - task: check:unix:key
+      - echo "✅ All checks passed."
 
   ssh:
     desc: SSH into the server as deploy user
@@ -76,10 +230,29 @@ tasks:
       - sops exec-file --no-fifo reporting-tool/deploy_key.sops 'chmod 600 {} && GIT_SSH_COMMAND="ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git submodule update --remote --merge -- reporting-tool/app'
       - git add reporting-tool/app
 
+  submodule:init:conference-tool:
+    desc: Initialize conference-tool/app submodule using its deploy key (idempotent)
+    cmds:
+      - sops exec-file --no-fifo conference-tool/deploy_key.sops 'chmod 600 {} && GIT_SSH_COMMAND="ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git submodule update --init -- conference-tool/app'
+
+  submodule:update:conference-tool:
+    desc: Update conference-tool/app submodule using its deploy key
+    deps: [submodule:init:conference-tool]
+    cmds:
+      - sops exec-file --no-fifo conference-tool/deploy_key.sops 'chmod 600 {} && GIT_SSH_COMMAND="ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git submodule update --remote --merge -- conference-tool/app'
+      - git add conference-tool/app
+
+  submodule:init:
+    desc: Initialize all submodules using their deploy keys
+    cmds:
+      - task: submodule:init:reporting-tool
+      - task: submodule:init:conference-tool
+
   submodule:update:
     desc: Pull latest commits for all submodules and stage changes
     cmds:
       - task: submodule:update:reporting-tool
+      - task: submodule:update:conference-tool
 
   submodule:update:commit:
     desc: Pull latest commits for all submodules, stage, and commit

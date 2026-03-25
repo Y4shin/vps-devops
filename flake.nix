@@ -21,10 +21,13 @@
             openssh
             sshpass
             rsync
+            yq-go
+            lefthook
           ];
 
           shellHook = ''
             ansible-galaxy collection install --upgrade \
+              --collections-path ./collections \
               community.sops community.docker community.general ansible.posix \
               > /dev/null 2>&1 &
           '';
