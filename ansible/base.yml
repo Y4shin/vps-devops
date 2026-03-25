@@ -1,0 +1,283 @@
+---
+# Base host configuration after the initial bootstrap. This playbook connects as
+# the regular deploy user and escalates to root via `su`, so it remains usable
+# even after root SSH login has been disabled.
+- name: Configure VPS Base
+  hosts: vps
+  gather_facts: true
+  become: true
+
+  vars:
+    sops_version: "3.9.4"
+    awscli_arch: "{{ 'x86_64' if ansible_facts['architecture'] == 'x86_64' else 'aarch64' }}"
+
+  tasks:
+    - name: Enable Ubuntu universe repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_facts['distribution_release'] }} universe"
+        state: present
+      when: ansible_facts['distribution'] == 'Ubuntu'
+
+    - name: Enable Ubuntu universe updates repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_facts['distribution_release'] }}-updates universe"
+        state: present
+      when: ansible_facts['distribution'] == 'Ubuntu'
+
+    - name: Enable Ubuntu universe security repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://security.ubuntu.com/ubuntu {{ ansible_facts['distribution_release'] }}-security universe"
+        state: present
+      when: ansible_facts['distribution'] == 'Ubuntu'
+
+    - name: apt update + full-upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: full
+        autoremove: true
+
+    - name: Install core packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - git
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - borgbackup
+          - unattended-upgrades
+          - apt-listchanges
+          - ufw
+          - fail2ban
+          - htop
+          - jq
+          - unzip
+          - whiptail
+        state: present
+
+    - name: Check whether AWS CLI is already installed
+      ansible.builtin.command: aws --version
+      register: awscli_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Download AWS CLI bundle
+      ansible.builtin.get_url:
+        url: "https://awscli.amazonaws.com/awscli-exe-linux-{{ awscli_arch }}.zip"
+        dest: /tmp/awscliv2.zip
+        mode: "0644"
+      when: awscli_installed.rc != 0
+
+    - name: Extract AWS CLI bundle
+      ansible.builtin.unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: true
+      when: awscli_installed.rc != 0
+
+    - name: Install AWS CLI
+      ansible.builtin.command:
+        cmd: /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+      when: awscli_installed.rc != 0
+
+    - name: Remove extracted AWS CLI bundle
+      ansible.builtin.file:
+        path: /tmp/aws
+        state: absent
+      when: awscli_installed.rc != 0
+
+    - name: Remove downloaded AWS CLI archive
+      ansible.builtin.file:
+        path: /tmp/awscliv2.zip
+        state: absent
+      when: awscli_installed.rc != 0
+
+    - name: Configure unattended-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-security";
+              "${distro_id}ESMApps:${distro_codename}-apps-security";
+              "${distro_id}ESM:${distro_codename}-infra-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::MinimalSteps "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+          Unattended-Upgrade::Automatic-Reboot "false";
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable periodic upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable and start unattended-upgrades service
+      ansible.builtin.service:
+        name: unattended-upgrades
+        enabled: true
+        state: started
+
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+
+    - name: Open required ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: tcp
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",  comment: "SSH" }
+        - { port: "80",  comment: "HTTP (Traefik)" }
+        - { port: "443", comment: "HTTPS (Traefik)" }
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Apply SSH hardening drop-in
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+          PubkeyAuthentication yes
+          AuthorizedKeysFile .ssh/authorized_keys
+          X11Forwarding no
+          AllowTcpForwarding no
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+          MaxAuthTries 3
+          LoginGraceTime 20
+        owner: root
+        group: root
+        mode: "0600"
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Reload sshd
+
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        content: |
+          [sshd]
+          enabled = true
+          port    = 22
+          filter  = sshd
+          maxretry = 5
+          bantime  = 1h
+          findtime = 10m
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart fail2ban
+
+    - name: Enable and start fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        enabled: true
+        state: started
+
+    - name: Add Docker apt key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker apt repository (DEB822 format)
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.sources
+        content: |
+          Types: deb
+          URIs: https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: stable
+          Signed-By: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        update_cache: true
+        state: present
+
+    - name: Enable and start Docker
+      ansible.builtin.service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add deploy user to docker group
+      ansible.builtin.user:
+        name: deploy
+        groups: docker
+        append: true
+
+    - name: Detect system architecture for sops
+      ansible.builtin.set_fact:
+        sops_arch: "{{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else 'arm64' }}"
+
+    - name: Check if sops is already installed at target version
+      ansible.builtin.command: sops --version
+      register: sops_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Install sops
+      ansible.builtin.apt:
+        deb: "https://github.com/getsops/sops/releases/download/v{{ sops_version }}/sops_{{ sops_version }}_{{ sops_arch }}.deb"
+      when: sops_version not in (sops_installed.stdout | default(''))
+
+    - name: Create /opt/vps-devops
+      ansible.builtin.file:
+        path: /opt/vps-devops
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0755"
+
+    - name: Create /opt/vps-devops/scripts
+      ansible.builtin.file:
+        path: /opt/vps-devops/scripts
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0755"
+
+    - name: Create /opt/vps-devops/reporting-tool
+      ansible.builtin.file:
+        path: /opt/vps-devops/reporting-tool
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0755"
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded
+
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

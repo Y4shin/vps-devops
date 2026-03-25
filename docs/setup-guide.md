@@ -49,9 +49,9 @@ gpg --export-secret-keys --armor vps-devops@local > vps-devops-gpg.key
 
 ## Step 2 — Bootstrap the server (Ansible)
 
-The bootstrap playbook handles all one-time server configuration:
-system updates, Docker, Borg, sops/age, UFW, SSH hardening, fail2ban,
-unattended-upgrades, and the `deploy` user.
+The initial bootstrap playbook now does only the first handoff:
+it creates the `deploy` user and installs its SSH key so the rest of the setup
+can happen over the normal deploy-user path.
 
 ### 2a. Configure the inventory
 
@@ -62,6 +62,20 @@ To update it:
 task secrets-edit FILE=ansible/inventory.sops.yaml
 ```
 
+This inventory file should also contain the privilege-escalation settings used
+by the deploy-time playbooks:
+
+```yaml
+all:
+  hosts:
+    vps:
+      ansible_host: ...
+      ansible_user: deploy
+      ansible_become_method: su
+      ansible_become_user: root
+      ansible_become_password: ...
+```
+
 ### 2b. Set the deploy public key
 
 Generate a dedicated key pair for the `deploy` user:
@@ -69,6 +83,11 @@ Generate a dedicated key pair for the `deploy` user:
 ```bash
 ssh-keygen -t ed25519 -C "vps-deploy" -f ~/.ssh/vps-deploy
 ```
+
+Store the private key in its own encrypted file, expected at
+[`deploy_ssh_private_key.sops`](../deploy_ssh_private_key.sops). The Taskfile
+uses `sops exec-file` to decrypt that key to a temporary file only for the
+duration of each SSH/Ansible command.
 
 In [`ansible/bootstrap.yml`](../ansible/bootstrap.yml), replace the placeholder:
 
@@ -83,12 +102,21 @@ vars:
 task bootstrap
 ```
 
-The playbook is idempotent — safe to re-run if it fails partway through.
-
 ### 2d. Verify SSH access as deploy user
 
 ```bash
-ssh -i ~/.ssh/vps-deploy deploy@YOUR_SERVER_IP "echo ok"
+task ssh
+```
+
+### 2e. Apply the base host configuration
+
+This step connects as `deploy`, then escalates to `root` using the privilege
+escalation settings stored in the encrypted inventory. It applies packages, Docker, firewall rules, SSH
+hardening, fail2ban, unattended upgrades, and the host directories used by the
+deploy playbooks.
+
+```bash
+task deploy:base
 ```
 
 ---
@@ -156,7 +184,7 @@ git push
 ## Step 4 — Clone repo and initialise Borg on the VPS
 
 ```bash
-ssh -i ~/.ssh/vps-deploy deploy@YOUR_SERVER_IP
+task ssh
 
 git clone --recurse-submodules git@github.com:your-org/vps-devops.git /opt/vps-devops
 
@@ -201,7 +229,7 @@ cd ../..
 git add reporting-tool/app
 git commit -m "chore: update reporting-tool to <new-commit-sha>"
 git push
-ansible-playbook ansible/site.yml -i ansible/inventory.yml
+task deploy
 ```
 
 ### Update infra config (Traefik, firewall, etc.)
@@ -219,7 +247,7 @@ sops reporting-tool/.env.sops.yaml   # opens in $EDITOR, re-encrypts on save
 git add reporting-tool/.env.sops.yaml
 git commit -m "chore: update app secrets"
 git push
-ansible-playbook ansible/site.yml -i ansible/inventory.yml
+task deploy
 ```
 
 ### Add a new age key recipient (e.g. a teammate)
@@ -236,7 +264,9 @@ git add -A && git commit -m "chore: add teammate age key"
 ### Schedule nightly backups (optional)
 
 ```bash
-ssh -i ~/.ssh/vps-deploy deploy@YOUR_SERVER_IP "crontab -e"
+task ssh
+# then run:
+# crontab -e
 # Add:
-# 0 3 * * * bash /opt/vps-devops/scripts/backup.sh >> /var/log/borg-backup.log 2>&1
+# 0 3 * * * bash /opt/vps-devops/scripts/backup-reporting-tool.sh >> /var/log/borg-backup.log 2>&1
 ```

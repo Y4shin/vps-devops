@@ -3,7 +3,9 @@ all:
         vps:
             ansible_host: ENC[AES256_GCM,data:N9ocEvZP4IQ855OSD5k=,iv:OPWuBOidDlgfEog4Y0HUjmTBVyzbvlib0Dvkkca50dE=,tag:z2d7b0CijaQJoLeQuBxFgg==,type:str]
             ansible_user: ENC[AES256_GCM,data:dd/S78Jt,iv:sCejw2MW4yFqIAzU3NDUBadPCWJHcSbGZ+v4ZkUhW7A=,tag:ptL96zUMGCkvdWe3l/qE0w==,type:str]
-            ansible_ssh_private_key_file: ENC[AES256_GCM,data:DHa2KBjrfTWOG8cpV56l+X8=,iv:vX5AnTfLVJwQTv/qC0cmYm647TXTfgdT2B1IKHk7waQ=,tag:C+MBSF+axUmvv6iJh+Ss3w==,type:str]
+            ansible_become_method: ENC[AES256_GCM,data:TXE=,iv:sg9f+GRAO1yZm5zWr7wi2bG5+U7V8PFd6gTLNCv2sNk=,tag:8+8r0yKwis4TMNSR0K1gmA==,type:str]
+            ansible_become_user: ENC[AES256_GCM,data:JeZRRg==,iv:a3eWRY4GUvcpWsc5LVxYKoxOUgGAiZDvlEp3cXWrioA=,tag:lvSP/tuadp1vYMyiyOJCeA==,type:str]
+            ansible_become_password: ENC[AES256_GCM,data:wTlxMBYfJQk5kPew82+q36MrUYw=,iv:lxrVGjmv4faA8GONeB/PwFlsp35+sMT09gGNsVk+kDs=,tag:cx4hLxdWU2uFAu0vQHMIUw==,type:str]
 sops:
     age:
         - recipient: age1tyq0ywrxqmrk0lssghdqwult6xmzlthqj3kdthu8qqqdpxew840slxmsrg
@@ -15,8 +17,8 @@ sops:
             b3hIVFYwdDZPanJtUmlKYkRVNmVXTDAK91bPGxbhL7uveqMnnEE1RZsCYOVPpIuG
             HK4yZ76KQw0mRHPl0OBIrHKNqvA/oD9nm3VN1b0Nt8MrOsTT7J4UhQ==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-03-24T16:24:58Z"
-    mac: ENC[AES256_GCM,data:ibvKzqLre7Zk63q3RPvGC3MPBPjK/kiJoe/aHvmoMFgoWlFWNNIqOsSLqg7wCdtEkgWPl/rseNXW3UjQ9Ox2kZS8tTK05K5xkU8MYrdX+gycfTRk2znWGQNS1Hf6T/SN/teRD8m759vuPzgFUo7Qtx+WQDd6R16/7+BKydh6DxM=,iv:gn43tKzAmRaQQXiEcRN1GSMqSaz+ntBkyBQqQ3EdkCE=,tag:SoZ4+YZX90EYH4XP7wSTCg==,type:str]
+    lastmodified: "2026-03-25T18:36:41Z"
+    mac: ENC[AES256_GCM,data:pESGiCNRUV0W//ADRU0dj2NPB5pRugeU5aucIW3U/umOyfH3whWxhzju02C7CBdLhHmpziS71sFnzB0iStMeVcpUwPFNzXJLEeyONIWq2JoVQ2geaEpi5jVHLUFxjmnNFPsrvF//sFZzW0Ijw9Fu/D5m0eGP09Ad1Au8OcjsSLw=,iv:FGgEBJntoBpU7HhzN4ngtS0M5L0Q3TkTlPR0Y4JHxGI=,tag:CRuJfLm6cPNIyjy5WV2eGg==,type:str]
     pgp:
         - created_at: "2026-03-24T12:31:16Z"
           enc: |-

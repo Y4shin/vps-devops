@@ -1,12 +1,11 @@
 ---
 - name: Deploy Witness
   hosts: vps
-  become: true
-  become_user: deploy
 
   vars:
     repo_root: "{{ playbook_dir }}/.."
     borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    awscli_arch: "{{ 'x86_64' if ansible_facts['architecture'] == 'x86_64' else 'aarch64' }}"
 
   tasks:
     - name: Set secrets variables
@@ -14,6 +13,58 @@
         secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
         app_secrets: "{{ lookup('community.sops.sops', repo_root + '/reporting-tool/.env.sops.yaml') | from_yaml }}"
       no_log: true
+
+    - name: Check whether AWS CLI is already installed
+      ansible.builtin.command: aws --version
+      register: awscli_installed
+      failed_when: false
+      changed_when: false
+      become: true
+
+    - name: Install unzip for AWS CLI bundle extraction
+      ansible.builtin.apt:
+        name:
+          - unzip
+        state: present
+        update_cache: true
+      when: awscli_installed.rc != 0
+      become: true
+
+    - name: Download AWS CLI bundle
+      ansible.builtin.get_url:
+        url: "https://awscli.amazonaws.com/awscli-exe-linux-{{ awscli_arch }}.zip"
+        dest: /tmp/awscliv2.zip
+        mode: "0644"
+      when: awscli_installed.rc != 0
+      become: true
+
+    - name: Extract AWS CLI bundle
+      ansible.builtin.unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: true
+      when: awscli_installed.rc != 0
+      become: true
+
+    - name: Install AWS CLI
+      ansible.builtin.command:
+        cmd: /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+      when: awscli_installed.rc != 0
+      become: true
+
+    - name: Remove extracted AWS CLI bundle
+      ansible.builtin.file:
+        path: /tmp/aws
+        state: absent
+      when: awscli_installed.rc != 0
+      become: true
+
+    - name: Remove downloaded AWS CLI archive
+      ansible.builtin.file:
+        path: /tmp/awscliv2.zip
+        state: absent
+      when: awscli_installed.rc != 0
+      become: true
 
     # -------------------------------------------------------------------------
     # Borg — SSH key, env file, and repo initialization
@@ -48,9 +99,9 @@
       become: false
       changed_when: false
 
-    - name: Write Borg environment file
+    - name: Write reporting-tool Borg environment file
       ansible.builtin.copy:
-        dest: /opt/vps-devops/scripts/borg-env
+        dest: /opt/vps-devops/scripts/reporting-tool-borg-env
         content: |
           export BORG_REPO="{{ borg_repo }}"
           export BORG_PASSPHRASE="{{ app_secrets.borg_passphrase }}"
@@ -106,6 +157,28 @@
         state: directory
         mode: "0755"
 
+    - name: Create reporting-tool backup staging directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/backups/reporting-tool-staging
+        state: directory
+        mode: "0700"
+
+    - name: Write reporting-tool backup environment file
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/scripts/reporting-tool-backup-env
+        content: |
+          export REPORTING_TOOL_COMPOSE_DIR=/opt/vps-devops/reporting-tool
+          export REPORTING_TOOL_CONTAINER=reporting-tool-app-1
+          export REPORTING_TOOL_DB_VOLUME=reporting-tool_db_data
+          export REPORTING_TOOL_STAGING_DIR=/opt/vps-devops/backups/reporting-tool-staging
+          export S3_ENDPOINT={{ secrets.s3_endpoint }}
+          export S3_BUCKET={{ secrets.s3_bucket }}
+          export S3_REGION={{ secrets.s3_region }}
+          export S3_ACCESS_KEY_ID={{ app_secrets.S3_ACCESS_KEY_ID }}
+          export S3_SECRET_ACCESS_KEY={{ app_secrets.S3_SECRET_ACCESS_KEY }}
+        mode: "0600"
+      no_log: true
+
     - name: Render witness compose file
       ansible.builtin.template:
         src: "{{ repo_root }}/reporting-tool/docker-compose.yml.j2"
@@ -128,15 +201,27 @@
       become: false
       when: witness_source_changed
 
-    - name: Copy backup script
+    - name: Copy reporting-tool backup script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/scripts/backup-reporting-tool.sh"
+        dest: /opt/vps-devops/scripts/backup-reporting-tool.sh
+        mode: "0750"
+
+    - name: Copy reporting-tool restore script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/scripts/restore-reporting-tool.sh"
+        dest: /opt/vps-devops/scripts/restore-reporting-tool.sh
+        mode: "0750"
+
+    - name: Copy compatibility backup wrapper
       ansible.builtin.copy:
         src: "{{ repo_root }}/scripts/backup.sh"
         dest: /opt/vps-devops/scripts/backup.sh
         mode: "0755"
 
-    - name: Backup database before deploy
+    - name: Backup reporting-tool before deploy
       ansible.builtin.command:
-        cmd: bash /opt/vps-devops/scripts/backup.sh
+        cmd: bash /opt/vps-devops/scripts/backup-reporting-tool.sh
       when: witness_source_changed and last_commit != ""
 
     - name: Build witness env content

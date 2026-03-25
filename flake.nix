@@ -17,7 +17,9 @@
             sops
             age
             ansible
+            borgbackup
             git
+            gnupg
             openssh
             sshpass
             rsync

@@ -3,3 +3,4 @@
 ansible/inventory.yml
 .direnv/
 collections/
+.task/
