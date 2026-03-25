@@ -13,7 +13,8 @@ services:
       - ./traefik.yml:/traefik.yml:ro
       - letsencrypt:/letsencrypt
     networks:
-      - proxy
+      proxy:
+        ipv4_address: {{ secrets.proxy_traefik_ip }}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dashboard.rule=Host(`traefik.{{ secrets.domain }}`)"
@@ -23,8 +24,19 @@ services:
       - "traefik.http.routers.dashboard.middlewares=dashboard-auth"
       - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USER}:${TRAEFIK_DASHBOARD_PASSWORD_HASH}"
 
+  coredns:
+    image: coredns/coredns:latest
+    restart: unless-stopped
+    command: -conf /Corefile
+    volumes:
+      - ./Corefile:/Corefile:ro
+    networks:
+      proxy:
+        ipv4_address: {{ secrets.proxy_dns_ip }}
+
 networks:
   proxy:
+    external: true
     name: proxy
 
 volumes:

@@ -25,7 +25,9 @@
 
     - name: Decrypt Borg SSH key to local temp file
       ansible.builtin.shell:
-        cmd: sops --output-type binary decrypt {{ repo_root }}/borg/ssh_key.sops > /tmp/borg_key_deploy
+        cmd: sops -d --extract '["data"]' {{ repo_root }}/borg/ssh_key.sops > /tmp/borg_key_deploy
+      environment:
+        SOPS_AGE_KEY_FILE: "{{ repo_root }}/age.key"
       delegate_to: localhost
       become: false
       no_log: true
@@ -109,6 +111,11 @@
         src: "{{ repo_root }}/reporting-tool/docker-compose.yml.j2"
         dest: /opt/vps-devops/reporting-tool/docker-compose.yml
         mode: "0644"
+      register: witness_compose_result
+
+    - name: Set witness source change fact
+      ansible.builtin.set_fact:
+        witness_source_changed: "{{ current_commit.stdout != last_commit }}"
 
     - name: Sync app source to server
       ansible.posix.synchronize:
@@ -119,7 +126,7 @@
           - "--exclude=node_modules"
           - "--exclude=.git"
       become: false
-      when: current_commit.stdout != last_commit
+      when: witness_source_changed
 
     - name: Copy backup script
       ansible.builtin.copy:
@@ -130,12 +137,11 @@
     - name: Backup database before deploy
       ansible.builtin.command:
         cmd: bash /opt/vps-devops/scripts/backup.sh
-      when: current_commit.stdout != last_commit and last_commit != ""
+      when: witness_source_changed and last_commit != ""
 
-    - name: Write app .env
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/reporting-tool/.env
-        content: |
+    - name: Build witness env content
+      ansible.builtin.set_fact:
+        witness_env_content: |
           ORIGIN=https://witness.{{ secrets.domain }}
           DATABASE_URL=file:/data/app.db
           SESSION_SECRET={{ app_secrets.SESSION_SECRET }}
@@ -146,23 +152,75 @@
           S3_REGION={{ secrets.s3_region }}
           S3_ACCESS_KEY_ID={{ app_secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY={{ app_secrets.S3_SECRET_ACCESS_KEY }}
+      no_log: true
+
+    - name: Build witness env hash
+      ansible.builtin.set_fact:
+        witness_env_hash: "{{ witness_env_content | hash('sha256') }}"
+      no_log: true
+
+    - name: Read previous witness env hash
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/reporting-tool/.env.sha256
+      register: witness_env_hash_file
+      failed_when: false
+      no_log: true
+
+    - name: Decide whether witness env changed
+      ansible.builtin.set_fact:
+        witness_env_changed: "{{ (witness_env_hash_file.content | default('') | b64decode | trim) != witness_env_hash }}"
+      no_log: true
+
+    - name: Write app .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/reporting-tool/.env
+        content: "{{ witness_env_content }}"
         mode: "0600"
       no_log: true
-      when: current_commit.stdout != last_commit
 
-    - name: Build and start witness
+    - name: Store witness env hash
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/reporting-tool/.env.sha256
+        content: "{{ witness_env_hash }}\n"
+        mode: "0600"
+      no_log: true
+
+    - name: Decide whether witness needs full recreate
+      ansible.builtin.set_fact:
+        witness_needs_recreate: >-
+          {{
+            witness_source_changed
+            or witness_compose_result.changed
+            or witness_env_changed
+          }}
+
+    - name: Build and recreate witness when source changed
       community.docker.docker_compose_v2:
         project_src: /opt/vps-devops/reporting-tool
         build: always
         state: present
-      when: current_commit.stdout != last_commit
+        recreate: always
+      when: witness_source_changed
+
+    - name: Recreate witness when config changed
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/reporting-tool
+        state: present
+        recreate: always
+      when: not witness_source_changed and witness_needs_recreate
+
+    - name: Ensure witness is running without forced recreate
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/reporting-tool
+        state: present
+      when: not witness_needs_recreate
 
     - name: Record deployed commit
       ansible.builtin.copy:
         dest: /opt/vps-devops/reporting-tool/.last-deployed-commit
         content: "{{ current_commit.stdout }}"
         mode: "0644"
-      when: current_commit.stdout != last_commit
+      when: witness_source_changed
 
     - name: Remove app .env
       ansible.builtin.file:

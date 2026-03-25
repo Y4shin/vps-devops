@@ -1,0 +1,13 @@
+{{ secrets.domain }} {
+    template IN A {{ secrets.domain }} {
+        answer "{{ '{{ .Name }}' }} 60 IN A {{ secrets.proxy_traefik_ip }}"
+    }
+    template IN AAAA {{ secrets.domain }} {
+        rcode NOERROR
+    }
+    forward . /etc/resolv.conf
+}
+
+. {
+    forward . /etc/resolv.conf
+}

@@ -3,6 +3,8 @@ services:
     build: ./app
     env_file: .env
     restart: unless-stopped
+    dns:
+      - {{ secrets.proxy_dns_ip }}
     networks:
       - proxy
       - internal
