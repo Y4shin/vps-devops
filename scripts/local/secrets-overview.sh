@@ -37,7 +37,11 @@ fi
     echo
     echo "Authentik"
     echo "========="
+    printf 'PostgreSQL password: %s\n' "$(sops -d --extract '["PG_PASS"]' authentik/.env.sops.yaml)"
+    printf 'Authentik secret key: %s\n' "$(sops -d --extract '["AUTHENTIK_SECRET_KEY"]' authentik/.env.sops.yaml)"
     printf 'Bootstrap password: %s\n' "$(sops -d --extract '["AUTHENTIK_BOOTSTRAP_PASSWORD"]' authentik/.env.sops.yaml)"
+    printf 'Borg path: %s\n' "$(sops -d --extract '["borg_path"]' authentik/.env.sops.yaml)"
+    printf 'Borg passphrase: %s\n' "$(sops -d --extract '["borg_passphrase"]' authentik/.env.sops.yaml)"
     if sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
       printf 'Bootstrap email: %s\n' "$(sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml)"
     fi

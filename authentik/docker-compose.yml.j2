@@ -15,7 +15,7 @@ services:
       retries: 5
       timeout: 5s
     volumes:
-      - database:/var/lib/postgresql/data
+      - ./data/postgresql:/var/lib/postgresql/data
     networks:
       - internal
 
@@ -40,8 +40,8 @@ services:
       - {{ secrets.proxy_dns_ip }}
     volumes:
       - ./blueprints/apps:/blueprints/custom:ro
-      - ./data:/data
-      - ./custom-templates:/templates
+      - ./data/media:/data
+      - ./data/custom-templates:/templates
     networks:
       - proxy
       - internal
@@ -72,9 +72,9 @@ services:
         condition: service_healthy
     volumes:
       - ./blueprints/apps:/blueprints/custom:ro
-      - ./data:/data
-      - ./certs:/certs
-      - ./custom-templates:/templates
+      - ./data/media:/data
+      - ./data/certs:/certs
+      - ./data/custom-templates:/templates
     networks:
       - internal
 
@@ -83,6 +83,3 @@ networks:
     external: true
     name: proxy
   internal: {}
-
-volumes:
-  database:

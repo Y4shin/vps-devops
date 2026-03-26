@@ -24,5 +24,5 @@ remote_command_quoted="$(printf '%q' "$remote_command")"
   cd "$repo_root"
   SOPS_AGE_KEY_FILE="$age_key_file" \
     sops exec-file --no-fifo deploy_ssh_private_key.sops \
-    "chmod 600 {} && ssh -o StrictHostKeyChecking=accept-new -i {} deploy@${host} ${remote_command_quoted}"
+    "chmod 600 {} && ssh -t -o StrictHostKeyChecking=accept-new -i {} deploy@${host} ${remote_command_quoted}"
 )

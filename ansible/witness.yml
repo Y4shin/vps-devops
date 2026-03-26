@@ -256,58 +256,60 @@
         witness_env_changed: "{{ (witness_env_hash_file.content | default('') | b64decode | trim) != witness_env_hash }}"
       no_log: true
 
-    - name: Write app .env
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/reporting-tool/.env
-        content: "{{ witness_env_content }}"
-        mode: "0600"
-      no_log: true
+    - name: Deploy Witness with temporary .env
+      block:
+        - name: Write app .env
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/reporting-tool/.env
+            content: "{{ witness_env_content }}"
+            mode: "0600"
+          no_log: true
 
-    - name: Store witness env hash
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/reporting-tool/.env.sha256
-        content: "{{ witness_env_hash }}\n"
-        mode: "0600"
-      no_log: true
+        - name: Store witness env hash
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/reporting-tool/.env.sha256
+            content: "{{ witness_env_hash }}\n"
+            mode: "0600"
+          no_log: true
 
-    - name: Decide whether witness needs full recreate
-      ansible.builtin.set_fact:
-        witness_needs_recreate: >-
-          {{
-            witness_source_changed
-            or witness_compose_result.changed
-            or witness_env_changed
-          }}
+        - name: Decide whether witness needs full recreate
+          ansible.builtin.set_fact:
+            witness_needs_recreate: >-
+              {{
+                witness_source_changed
+                or witness_compose_result.changed
+                or witness_env_changed
+              }}
 
-    - name: Build and recreate witness when source changed
-      community.docker.docker_compose_v2:
-        project_src: /opt/vps-devops/reporting-tool
-        build: always
-        state: present
-        recreate: always
-      when: witness_source_changed
+        - name: Build and recreate witness when source changed
+          community.docker.docker_compose_v2:
+            project_src: /opt/vps-devops/reporting-tool
+            build: always
+            state: present
+            recreate: always
+          when: witness_source_changed
 
-    - name: Recreate witness when config changed
-      community.docker.docker_compose_v2:
-        project_src: /opt/vps-devops/reporting-tool
-        state: present
-        recreate: always
-      when: not witness_source_changed and witness_needs_recreate
+        - name: Recreate witness when config changed
+          community.docker.docker_compose_v2:
+            project_src: /opt/vps-devops/reporting-tool
+            state: present
+            recreate: always
+          when: not witness_source_changed and witness_needs_recreate
 
-    - name: Ensure witness is running without forced recreate
-      community.docker.docker_compose_v2:
-        project_src: /opt/vps-devops/reporting-tool
-        state: present
-      when: not witness_needs_recreate
+        - name: Ensure witness is running without forced recreate
+          community.docker.docker_compose_v2:
+            project_src: /opt/vps-devops/reporting-tool
+            state: present
+          when: not witness_needs_recreate
 
-    - name: Record deployed commit
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/reporting-tool/.last-deployed-commit
-        content: "{{ current_commit.stdout }}"
-        mode: "0644"
-      when: witness_source_changed
-
-    - name: Remove app .env
-      ansible.builtin.file:
-        path: /opt/vps-devops/reporting-tool/.env
-        state: absent
+        - name: Record deployed commit
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/reporting-tool/.last-deployed-commit
+            content: "{{ current_commit.stdout }}"
+            mode: "0644"
+          when: witness_source_changed
+      always:
+        - name: Remove app .env
+          ansible.builtin.file:
+            path: /opt/vps-devops/reporting-tool/.env
+            state: absent

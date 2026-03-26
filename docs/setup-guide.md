@@ -1,7 +1,11 @@
 # VPS DevOps — Setup Guide
 
 End-to-end walkthrough for provisioning a fresh Ubuntu 24.04 VPS and deploying
-the full stack (Traefik + reporting-tool) for the first time.
+the current stack from this repo.
+
+This guide reflects the Ansible/Taskfile workflow that exists today. For the
+current backup design and coverage, also see
+[`docs/backup-architecture.md`](./backup-architecture.md).
 
 ---
 
@@ -12,9 +16,10 @@ Install these on your **local machine** before starting:
 | Tool | Install |
 |---|---|
 | `git` | `brew install git` / distro package |
-| `gpg` | pre-installed on most systems / `brew install gnupg` |
+| `age` | `brew install age` / distro package |
 | `sops` | `brew install sops` / [GitHub releases](https://github.com/getsops/sops/releases) |
-| `ansible` | `brew install ansible` / `pip install ansible` |
+| `ansible` | `brew install ansible` / `pipx install ansible --include-deps` |
+| `go-task` | `brew install go-task/tap/go-task` / distro package |
 | `community.sops` + `community.docker` collections | see below |
 
 ```bash
@@ -23,27 +28,38 @@ ansible-galaxy collection install community.sops community.docker community.gene
 
 Verify:
 ```bash
-age --version && sops --version && ansible --version
+age --version && sops --version && ansible --version && task --version
 ```
 
 ---
 
-## Step 1 — GPG key
+## Step 1 — Age key for SOPS
 
-SOPS uses your local GPG key for encryption/decryption. Since all decryption happens on your
-local machine (via `delegate_to: localhost` in the Ansible playbook), the VPS never needs
-access to this key.
+This repo is wired around an Age private key at `./age.key`. The Taskfile and
+local helper scripts set `SOPS_AGE_KEY_FILE=./age.key`, and encrypted files are
+expected to match the recipient(s) listed in `.sops.yaml`.
 
-The key has already been generated (`vps-devops@local`, fingerprint `1E499701FC8E2CC54A3C5F4CD4627AD9C08F6B94`)
-and is stored in your local GPG keyring. It is already set in `.sops.yaml`.
+Since SOPS decryption happens on your local machine, the VPS does not need this
+Age key.
 
-**Back it up** — if you lose it you cannot decrypt the secrets:
+### 1a. Ensure the Age key is present
+
+Place your Age private key at:
 
 ```bash
-gpg --export-secret-keys --armor vps-devops@local > vps-devops-gpg.key
-# Store this somewhere safe (password manager, encrypted drive, etc.)
-# Do NOT commit it to the repo
+./age.key
 ```
+
+Then fix permissions and verify it:
+
+```bash
+task check:unix:key
+```
+
+### 1b. Back up the Age key
+
+If you lose `age.key`, you lose the ability to decrypt the repo secrets.
+Back it up somewhere safe outside the repo.
 
 ---
 
@@ -59,7 +75,7 @@ The server IP is stored encrypted in [`ansible/inventory.sops.yaml`](../ansible/
 To update it:
 
 ```bash
-task secrets-edit FILE=ansible/inventory.sops.yaml
+task secrets:edit FILE=ansible/inventory.sops.yaml
 ```
 
 This inventory file should also contain the privilege-escalation settings used
@@ -127,10 +143,16 @@ Do this on your **local machine** inside the `vps-devops` repo.
 
 ### 3a. Create `.sops.yaml`
 
+The repo already expects a `.sops.yaml` that contains the Age recipient(s) used
+for all `*.sops.yaml` files. If you need to create or update it, use your Age
+public key(s), not GPG fingerprints.
+
+Example:
+
 ```yaml
 creation_rules:
-  - path_regex: \.env\.sops\.yaml$
-    age: age1xxxxxxxxxx...   # your public key from Step 1
+  - path_regex: \.sops\.yaml$
+    age: age1xxxxxxxxxx...
 ```
 
 ### 3b. Encrypt Traefik secrets
@@ -148,7 +170,7 @@ TRAEFIK_DASHBOARD_USER: admin
 TRAEFIK_DASHBOARD_PASSWORD_HASH: "\$2y\$05\$your-hash-here"
 EOF
 
-sops -e /tmp/traefik.env.yaml > traefik/.env.sops.yaml
+SOPS_AGE_KEY_FILE=./age.key sops -e /tmp/traefik.env.yaml > traefik/.env.sops.yaml
 rm /tmp/traefik.env.yaml
 ```
 
@@ -156,63 +178,117 @@ rm /tmp/traefik.env.yaml
 
 ```bash
 cat > /tmp/app.env.yaml <<EOF
-ORIGIN: https://your-domain.example.com
-DATABASE_URL: file:/data/app.db
 SESSION_SECRET: $(openssl rand -hex 32)
 ADMIN_PASSWORD: your-strong-admin-password
+S3_ACCESS_KEY_ID: your-object-storage-access-key
+S3_SECRET_ACCESS_KEY: your-object-storage-secret-key
+borg_path: your-borg-repo-path
+borg_passphrase: $(openssl rand -base64 32)
 EOF
 
-sops -e /tmp/app.env.yaml > reporting-tool/.env.sops.yaml
+SOPS_AGE_KEY_FILE=./age.key sops -e /tmp/app.env.yaml > reporting-tool/.env.sops.yaml
 rm /tmp/app.env.yaml
 ```
 
-### 3d. Add the submodule
+Witness runtime values such as `ORIGIN`, `DATABASE_URL`, and the S3 endpoint,
+bucket, and region are injected by Ansible from `secrets.sops.yaml` and the
+playbook itself. They do not need to be stored in `reporting-tool/.env.sops.yaml`.
+
+### 3d. Encrypt global infrastructure secrets
+
+Create or update [`secrets.sops.yaml`](../secrets.sops.yaml) with at least:
+
+```yaml
+domain: your-domain.example.com
+letsencrypt_email: ops@your-domain.example.com
+s3_endpoint: https://your-object-storage-endpoint
+s3_bucket: your-object-storage-bucket
+s3_region: auto
+borg_host: your-borg-host
+borg_user: your-borg-user
+```
+
+Edit it with:
+
+```bash
+task secrets:edit FILE=secrets.sops.yaml
+```
+
+### 3e. Create Authentik secrets
+
+The default `task deploy` path includes Authentik, so create
+[`authentik/.env.sops.yaml`](../authentik/.env.sops.yaml) with at least:
+
+```yaml
+PG_PASS: your-strong-postgres-password
+AUTHENTIK_SECRET_KEY: your-long-random-authentik-secret
+AUTHENTIK_BOOTSTRAP_PASSWORD: your-strong-bootstrap-password
+borg_path: your-authentik-borg-repo-path
+borg_passphrase: your-authentik-borg-passphrase
+```
+
+Use a different `borg_path` than Witness so Authentik gets its own Borg repo on
+the same Hetzner storage box.
+
+Optional keys:
+
+- `AUTHENTIK_BOOTSTRAP_EMAIL`
+- `AUTHENTIK_ADMIN_USERNAME`
+- `AUTHENTIK_ADMIN_PASSWORD`
+- `AUTHENTIK_ADMIN_EMAIL`
+
+Edit it with:
+
+```bash
+task secrets:edit FILE=authentik/.env.sops.yaml
+```
+
+Generate the two persistent secrets once on your local machine and keep them in
+SOPS:
+
+```bash
+openssl rand -base64 36   # PG_PASS example
+openssl rand -base64 60   # AUTHENTIK_SECRET_KEY example
+openssl rand -base64 32   # borg_passphrase example
+```
+
+During deploy, Ansible renders these values into a temporary
+`/opt/vps-devops/authentik/.env`, performs the Docker Compose operations, and
+removes the file again afterward.
+
+### 3f. Add the submodule
 
 Already done — `reporting-tool/app` is pinned to the commit at the time this repo was set up.
 To update it to a newer commit see the day-to-day operations section below.
 
-### 3e. Commit and push
+### 3g. Commit and push
 
 ```bash
-git add .sops.yaml traefik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
+git add .sops.yaml secrets.sops.yaml traefik/.env.sops.yaml authentik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
 git commit -m "chore: initial repo setup with encrypted secrets and app submodule"
 git push
 ```
 
 ---
 
-## Step 4 — Clone repo and initialise Borg on the VPS
-
-```bash
-task ssh
-
-git clone --recurse-submodules git@github.com:your-org/vps-devops.git /opt/vps-devops
-
-borg init --encryption=repokey /opt/borg-backups/reporting-tool
-# You will be prompted for a passphrase — store it securely.
-
-exit
-```
-
----
-
-## Step 5 — First deploy
-
-From your local machine:
+## Step 4 — First deploy and Borg initialization
 
 ```bash
 task deploy
 ```
 
 This will:
-1. Pull the repo on the server
-2. Start Traefik (and obtain a TLS certificate)
-3. Detect no previous deploy → backup (first archive) → build and start the app
+1. Configure or update Traefik
+2. Configure or update Authentik
+3. Configure Witness
+4. Initialize the remote Borg repositories automatically if they do not exist yet
+5. Build and start the Witness app
 
 Verify:
 
 ```bash
-curl -I https://your-domain.example.com
+curl -I https://witness.your-domain.example.com
+curl -I https://traefik.your-domain.example.com
 ```
 
 ---
@@ -243,7 +319,7 @@ task deploy
 ### Update encrypted secrets
 
 ```bash
-sops reporting-tool/.env.sops.yaml   # opens in $EDITOR, re-encrypts on save
+SOPS_AGE_KEY_FILE=./age.key sops reporting-tool/.env.sops.yaml
 git add reporting-tool/.env.sops.yaml
 git commit -m "chore: update app secrets"
 git push
@@ -256,8 +332,7 @@ task deploy
 # In .sops.yaml, add their public key separated by a comma:
 # age: age1<your-key>,age1<teammate-key>
 
-sops updatekeys traefik/.env.sops.yaml
-sops updatekeys reporting-tool/.env.sops.yaml
+task secrets:updatekeys
 git add -A && git commit -m "chore: add teammate age key"
 ```
 
@@ -269,4 +344,17 @@ task ssh
 # crontab -e
 # Add:
 # 0 3 * * * bash /opt/vps-devops/scripts/backup-reporting-tool.sh >> /var/log/borg-backup.log 2>&1
+# 0 4 * * * bash /opt/vps-devops/scripts/backup-authentik.sh >> /var/log/borg-backup.log 2>&1
+```
+
+### Inspect available Witness backups
+
+```bash
+task witness:backup:info
+```
+
+### Inspect available Authentik backups
+
+```bash
+task authentik:backup:info
 ```

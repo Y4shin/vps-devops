@@ -34,6 +34,18 @@ require_command() {
   fi
 }
 
+prompt_read() {
+  local prompt="$1"
+  local __var_name="$2"
+  local response=""
+
+  printf '%s' "$prompt"
+  IFS= read -r response || true
+
+  response="${response%$'\r'}"
+  printf -v "$__var_name" '%s' "$response"
+}
+
 reset_staging_dir() {
   mkdir -p "$REPORTING_TOOL_STAGING_DIR"
   find "$REPORTING_TOOL_STAGING_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -96,6 +108,36 @@ select_archive() {
 confirm_authoritative_bucket_restore() {
   local response=""
 
+  if command -v whiptail >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+    whiptail \
+      --title "Witness Restore" \
+      --defaultno \
+      --yesno "WARNING: You are restoring the reporting-tool bucket from a backup archive.\n\nArchive: ${archive_name}\nBucket: ${S3_BUCKET}\nEndpoint: ${S3_ENDPOINT}\n\nThis restore is authoritative.\nObjects that exist remotely but are not present in the archive WILL BE DELETED." \
+      20 110 || {
+      echo "Bucket confirmation did not match. Aborting restore." >&2
+      exit 1
+    }
+
+    whiptail \
+      --title "Witness Restore" \
+      --defaultno \
+      --yesno "SECOND WARNING: remote bucket contents will be made to match the archive exactly.\n\nAny newer or extra objects in ${S3_BUCKET} will be removed." \
+      18 110 || {
+      echo "Deletion confirmation not received. Aborting restore." >&2
+      exit 1
+    }
+
+    whiptail \
+      --title "Witness Restore" \
+      --defaultno \
+      --yesno "FINAL WARNING: this cannot be undone by this script.\n\nThe bucket restore will now run with --delete.\n\nProceed with the destructive restore?" \
+      18 110 || {
+      echo "Final confirmation not received. Aborting restore." >&2
+      exit 1
+    }
+    return
+  fi
+
   echo
   echo "WARNING: You are restoring the reporting-tool bucket from a backup archive."
   echo "Archive: ${archive_name}"
@@ -105,7 +147,7 @@ confirm_authoritative_bucket_restore() {
   echo "This restore is authoritative."
   echo "Objects that exist remotely but are not present in the archive WILL BE DELETED."
   echo
-  read -r -p "Type the exact bucket name to continue: " response
+  prompt_read "Type the exact bucket name to continue: " response
   if [[ "$response" != "$S3_BUCKET" ]]; then
     echo "Bucket confirmation did not match. Aborting restore." >&2
     exit 1
@@ -115,7 +157,7 @@ confirm_authoritative_bucket_restore() {
   echo "SECOND WARNING: remote bucket contents will be made to match the archive exactly."
   echo "Any newer or extra objects in ${S3_BUCKET} will be removed."
   echo
-  read -r -p "Type DELETE to confirm the destructive S3 sync: " response
+  prompt_read "Type DELETE to confirm the destructive S3 sync: " response
   if [[ "$response" != "DELETE" ]]; then
     echo "Deletion confirmation not received. Aborting restore." >&2
     exit 1
@@ -125,7 +167,7 @@ confirm_authoritative_bucket_restore() {
   echo "FINAL WARNING: this cannot be undone by this script."
   echo "The bucket restore will now run with --delete."
   echo
-  read -r -p "Type RESTORE EXACTLY to proceed: " response
+  prompt_read "Type RESTORE EXACTLY to proceed: " response
   if [[ "$response" != "RESTORE EXACTLY" ]]; then
     echo "Final confirmation not received. Aborting restore." >&2
     exit 1

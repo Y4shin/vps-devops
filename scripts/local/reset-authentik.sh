@@ -12,7 +12,7 @@ host="$(
 )"
 
 echo "This will permanently delete the current Authentik state on ${host}."
-echo "It removes the Authentik containers, the PostgreSQL named volume, local data, certs, and /opt/vps-devops/authentik/.env."
+echo "It runs 'docker compose down -v' for Authentik and then deletes /opt/vps-devops/authentik."
 echo
 read -r -p "Type the VPS host (${host}) to continue: " confirm_host
 if [[ "$confirm_host" != "$host" ]]; then
@@ -26,7 +26,32 @@ if [[ "$confirm_phrase" != "RESET AUTHENTIK" ]]; then
   exit 1
 fi
 
-remote_command="set -euo pipefail && cd /opt/vps-devops/authentik && docker compose down -v && docker run --rm -v /opt/vps-devops/authentik:/work alpine:3.22 sh -c 'rm -rf /work/data /work/certs /work/.env'"
+remote_command="$(cat <<'EOF'
+set -euo pipefail
+authentik_root=/opt/vps-devops/authentik
+
+if [[ -d "$authentik_root" ]]; then
+  cat > "$authentik_root/.env" <<'ENVEOF'
+PG_PASS=reset-temporary-value
+AUTHENTIK_SECRET_KEY=reset-temporary-value
+AUTHENTIK_BOOTSTRAP_PASSWORD=reset-temporary-value
+AUTHENTIK_ERROR_REPORTING__ENABLED=true
+AUTHENTIK_IMAGE=ghcr.io/goauthentik/server
+AUTHENTIK_TAG=2026.2.1
+AUTHENTIK_UID=999
+AUTHENTIK_GID=999
+ENVEOF
+
+  (
+    cd "$authentik_root"
+    docker compose down -v --remove-orphans || true
+  )
+fi
+
+docker volume rm -f authentik_database >/dev/null 2>&1 || true
+docker run --rm -v /opt/vps-devops:/work alpine:3.22 sh -c 'rm -rf /work/authentik'
+EOF
+)"
 remote_command_quoted="$(printf '%q' "$remote_command")"
 
 (

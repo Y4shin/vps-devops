@@ -28,7 +28,7 @@ tasks:
       - bash ./scripts/local/bootstrap.sh askpass
 
   deploy:
-    desc: Deploy all services (Traefik + Witness)
+    desc: Deploy all services (Traefik + Authentik + Witness)
     deps: [decrypt]
     cmds:
       - defer: rm -f ansible/inventory.yml
@@ -42,7 +42,7 @@ tasks:
       - bash ./scripts/local/run-playbook.sh ansible/traefik.yml
 
   deploy:authentik:
-    desc: Prepare Authentik only
+    desc: Deploy Authentik only
     deps: [decrypt]
     cmds:
       - defer: rm -f ansible/inventory.yml
@@ -151,6 +151,11 @@ tasks:
     cmds:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/authentik
 
+  ssh:authentik-backup:
+    desc: SSH into the server with Authentik Borg env loaded
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/scripts /opt/vps-devops/scripts/authentik-borg-env
+
   ssh:witness:
     desc: SSH into the server and cd to the Witness compose directory
     cmds:
@@ -178,8 +183,25 @@ tasks:
 
   witness:backup:restore:
     desc: "SSH to the VPS and run the witness restore script. Optionally pass ARCHIVE=<borg-archive-name>"
+    interactive: true
     cmds:
       - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-reporting-tool.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
+
+  authentik:backup:info:
+    desc: Show Borg repo info and archive list for the Authentik backup repo
+    cmds:
+      - bash ./scripts/local/authentik-backup-info.sh
+
+  authentik:backup:perform:
+    desc: SSH to the VPS and run the Authentik backup script
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./backup-authentik.sh"
+
+  authentik:backup:restore:
+    desc: "SSH to the VPS and run the Authentik restore script. Optionally pass ARCHIVE=<borg-archive-name>"
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-authentik.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
 
   witness:up:
     desc: Start or recreate the Witness stack with a temporary env file
@@ -208,6 +230,13 @@ tasks:
     cmds:
       - bash ./scripts/local/submodule.sh reporting-tool/deploy_key.sops reporting-tool/app init
 
+  submodule:checkout:reporting-tool:
+    desc: Check out reporting-tool/app to the commit recorded in the current repo checkout
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
+    cmds:
+      - bash ./scripts/local/submodule.sh reporting-tool/deploy_key.sops reporting-tool/app checkout
+
   submodule:update:reporting-tool:
     desc: Update reporting-tool/app submodule using its deploy key
     deps: [submodule:init:reporting-tool]
@@ -224,6 +253,13 @@ tasks:
     cmds:
       - bash ./scripts/local/submodule.sh conference-tool/deploy_key.sops conference-tool/app init
 
+  submodule:checkout:conference-tool:
+    desc: Check out conference-tool/app to the commit recorded in the current repo checkout
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
+    cmds:
+      - bash ./scripts/local/submodule.sh conference-tool/deploy_key.sops conference-tool/app checkout
+
   submodule:update:conference-tool:
     desc: Update conference-tool/app submodule using its deploy key
     deps: [submodule:init:conference-tool]
@@ -238,6 +274,12 @@ tasks:
     cmds:
       - task: submodule:init:reporting-tool
       - task: submodule:init:conference-tool
+
+  submodule:checkout:
+    desc: Make all submodule worktrees match the commits recorded in the current repo checkout
+    cmds:
+      - task: submodule:checkout:reporting-tool
+      - task: submodule:checkout:conference-tool
 
   submodule:update:
     desc: Pull latest commits for all submodules and stage changes

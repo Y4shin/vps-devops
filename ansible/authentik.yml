@@ -5,6 +5,7 @@
   vars:
     repo_root: "{{ playbook_dir }}/.."
     authentik_version: "2026.2.1"
+    borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
   tasks:
     - name: Check whether Authentik secrets file exists
@@ -17,14 +18,34 @@
     - name: Require Authentik secrets file
       ansible.builtin.fail:
         msg: >-
-          Create {{ repo_root }}/authentik/.env.sops.yaml with at least
-          AUTHENTIK_BOOTSTRAP_PASSWORD before deploying Authentik.
+          Create {{ repo_root }}/authentik/.env.sops.yaml with
+          AUTHENTIK_BOOTSTRAP_PASSWORD, PG_PASS, AUTHENTIK_SECRET_KEY,
+          borg_path, and borg_passphrase
+          before deploying Authentik.
       when: not authentik_secrets_file.stat.exists
 
     - name: Set secrets variable
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
         authentik_secrets: "{{ lookup('community.sops.sops', repo_root + '/authentik/.env.sops.yaml') | from_yaml }}"
+      no_log: true
+
+    - name: Require Authentik secret values
+      ansible.builtin.assert:
+        that:
+          - authentik_secrets.AUTHENTIK_BOOTSTRAP_PASSWORD is defined
+          - (authentik_secrets.AUTHENTIK_BOOTSTRAP_PASSWORD | trim) != ""
+          - authentik_secrets.PG_PASS is defined
+          - (authentik_secrets.PG_PASS | trim) != ""
+          - authentik_secrets.AUTHENTIK_SECRET_KEY is defined
+          - (authentik_secrets.AUTHENTIK_SECRET_KEY | trim) != ""
+          - authentik_secrets.borg_path is defined
+          - (authentik_secrets.borg_path | trim) != ""
+          - authentik_secrets.borg_passphrase is defined
+          - (authentik_secrets.borg_passphrase | trim) != ""
+        fail_msg: >-
+          authentik/.env.sops.yaml must define AUTHENTIK_BOOTSTRAP_PASSWORD,
+          PG_PASS, AUTHENTIK_SECRET_KEY, borg_path, and borg_passphrase.
       no_log: true
 
     - name: Discover Authentik blueprint files in the repo
@@ -77,7 +98,6 @@
         mode: "0644"
       loop: "{{ authentik_blueprint_files }}"
       when: item.path is not search('\\.j2$')
-      register: authentik_blueprint_copy_result
 
     - name: Render templated Authentik blueprint fragments
       ansible.builtin.template:
@@ -86,7 +106,6 @@
         mode: "0644"
       loop: "{{ authentik_blueprint_files }}"
       when: item.path is search('\\.j2$')
-      register: authentik_blueprint_template_result
 
     - name: Read deploy user entry
       ansible.builtin.command:
@@ -105,98 +124,289 @@
         authentik_deploy_uid: "{{ authentik_deploy_passwd.stdout.split(':')[2] }}"
         authentik_deploy_gid: "{{ authentik_deploy_group.stdout.split(':')[2] }}"
 
-    - name: Create Authentik data directories
+    - name: Create Authentik data root directory
       ansible.builtin.file:
-        path: "/opt/vps-devops/authentik/{{ item }}"
+        path: /opt/vps-devops/authentik/data
+        state: directory
+        mode: "0755"
+
+    - name: Check for legacy Authentik certs directory
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/certs
+      register: authentik_legacy_certs_dir
+
+    - name: Check for legacy Authentik custom-templates directory
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/custom-templates
+      register: authentik_legacy_templates_dir
+
+    - name: Detect legacy Authentik media data at data root
+      ansible.builtin.shell: |
+        set -euo pipefail
+        shopt -s dotglob nullglob
+        root=/opt/vps-devops/authentik/data
+        for entry in "$root"/*; do
+          base="$(basename "$entry")"
+          case "$base" in
+            media|postgresql|certs|custom-templates|.backup-tmp)
+              ;;
+            *)
+              echo legacy
+              exit 0
+              ;;
+          esac
+        done
+      args:
+        executable: /bin/bash
+      register: authentik_legacy_media_layout
+      changed_when: false
+
+    - name: Check for legacy Authentik PostgreSQL named volume
+      ansible.builtin.command:
+        argv:
+          - docker
+          - volume
+          - inspect
+          - authentik_database
+      register: authentik_legacy_db_volume
+      failed_when: false
+      changed_when: false
+
+    - name: Check whether PostgreSQL bind mount data already exists
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/data/postgresql/PG_VERSION
+      register: authentik_pgdata_version_file
+      become: true
+
+    - name: Check whether PostgreSQL bind mount directory exists
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/data/postgresql
+      register: authentik_pgdata_dir
+      become: true
+
+    - name: Create PostgreSQL bind mount directory when missing
+      ansible.builtin.file:
+        path: /opt/vps-devops/authentik/data/postgresql
+        state: directory
+        mode: "0700"
+      when: not authentik_pgdata_dir.stat.exists
+
+    - name: Stop Authentik containers before storage migration
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for container in authentik-server-1 authentik-worker-1 authentik-postgresql-1; do
+          docker stop "$container" >/dev/null 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      when:
+        - authentik_legacy_certs_dir.stat.exists
+          or authentik_legacy_templates_dir.stat.exists
+          or (authentik_legacy_media_layout.stdout | trim) == "legacy"
+          or (authentik_legacy_db_volume.rc == 0 and not authentik_pgdata_version_file.stat.exists)
+
+    - name: Move legacy Authentik media files into data/media
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root=/opt/vps-devops/authentik/data
+        mkdir -p "$root/media"
+        shopt -s dotglob nullglob
+        for entry in "$root"/*; do
+          base="$(basename "$entry")"
+          case "$base" in
+            media|postgresql|certs|custom-templates|.backup-tmp)
+              continue
+              ;;
+          esac
+          mv "$entry" "$root/media/"
+        done
+      args:
+        executable: /bin/bash
+      when: (authentik_legacy_media_layout.stdout | trim) == "legacy"
+
+    - name: Move legacy Authentik certs directory into data/certs
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src=/opt/vps-devops/authentik/certs
+        dest=/opt/vps-devops/authentik/data/certs
+        mkdir -p "$dest"
+        shopt -s dotglob nullglob
+        for entry in "$src"/*; do
+          mv "$entry" "$dest/"
+        done
+        rmdir "$src" || true
+      args:
+        executable: /bin/bash
+      when: authentik_legacy_certs_dir.stat.exists
+
+    - name: Move legacy Authentik templates directory into data/custom-templates
+      ansible.builtin.shell: |
+        set -euo pipefail
+        src=/opt/vps-devops/authentik/custom-templates
+        dest=/opt/vps-devops/authentik/data/custom-templates
+        mkdir -p "$dest"
+        shopt -s dotglob nullglob
+        for entry in "$src"/*; do
+          mv "$entry" "$dest/"
+        done
+        rmdir "$src" || true
+      args:
+        executable: /bin/bash
+      when: authentik_legacy_templates_dir.stat.exists
+
+    - name: Migrate legacy Authentik PostgreSQL volume into data/postgresql
+      ansible.builtin.shell: |
+        set -euo pipefail
+        dest=/opt/vps-devops/authentik/data/postgresql
+        mkdir -p "$dest"
+        if [[ -z "$(find "$dest" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+          docker run --rm \
+            -v authentik_database:/from:ro \
+            -v "$dest:/to" \
+            alpine:3.22 \
+            sh -c 'cd /from && cp -a . /to/'
+        fi
+      args:
+        executable: /bin/bash
+      when:
+        - authentik_legacy_db_volume.rc == 0
+        - not authentik_pgdata_version_file.stat.exists
+
+    - name: Create Authentik data subtree directories
+      ansible.builtin.file:
+        path: "/opt/vps-devops/authentik/data/{{ item }}"
         state: directory
         mode: "0755"
       loop:
-        - data
+        - media
         - certs
         - custom-templates
 
-    - name: Ensure Authentik writable directories use the service UID
+    - name: Ensure Authentik writable service directories use the service UID
       ansible.builtin.file:
-        path: "/opt/vps-devops/authentik/{{ item }}"
+        path: "/opt/vps-devops/authentik/data/{{ item }}"
         state: directory
         owner: "{{ authentik_deploy_uid }}"
         group: "{{ authentik_deploy_gid }}"
         mode: "{{ '0775' if item != 'certs' else '0755' }}"
       loop:
-        - data
+        - media
         - certs
         - custom-templates
+
+    - name: Create Authentik restore staging directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/backups/authentik-staging
+        state: directory
+        mode: "0700"
+
+    - name: Set Authentik Borg repo URL
+      ansible.builtin.set_fact:
+        authentik_borg_repo: "ssh://{{ secrets.borg_user }}@{{ secrets.borg_host }}:23/{{ authentik_secrets.borg_path }}"
+      no_log: true
+
+    - name: Decrypt Borg SSH key to local temp file
+      ansible.builtin.shell:
+        cmd: sops -d --extract '["data"]' {{ repo_root }}/borg/ssh_key.sops > /tmp/borg_key_deploy
+      environment:
+        SOPS_AGE_KEY_FILE: "{{ repo_root }}/age.key"
+      delegate_to: localhost
+      become: false
+      no_log: true
+      changed_when: false
+
+    - name: Deploy Borg SSH key
+      ansible.builtin.copy:
+        src: /tmp/borg_key_deploy
+        dest: /home/deploy/.ssh/borg_key
+        mode: "0600"
+      no_log: true
+
+    - name: Remove local temp Borg SSH key
+      ansible.builtin.file:
+        path: /tmp/borg_key_deploy
+        state: absent
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Write Authentik Borg environment file
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/scripts/authentik-borg-env
+        content: |
+          export BORG_REPO="{{ authentik_borg_repo }}"
+          export BORG_PASSPHRASE="{{ authentik_secrets.borg_passphrase }}"
+          export BORG_RSH="{{ borg_rsh }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Check if Authentik Borg repo is already initialized
+      ansible.builtin.command:
+        cmd: borg info {{ authentik_borg_repo }}
+      environment:
+        BORG_PASSPHRASE: "{{ authentik_secrets.borg_passphrase }}"
+        BORG_RSH: "{{ borg_rsh }}"
+      register: authentik_borg_info
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Initialize Authentik Borg repository
+      ansible.builtin.command:
+        cmd: borg init --encryption=repokey {{ authentik_borg_repo }}
+      environment:
+        BORG_PASSPHRASE: "{{ authentik_secrets.borg_passphrase }}"
+        BORG_RSH: "{{ borg_rsh }}"
+      when: authentik_borg_info.rc != 0
+      no_log: true
+
+    - name: Write Authentik backup environment file
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/scripts/authentik-backup-env
+        content: |
+          export AUTHENTIK_ROOT=/opt/vps-devops/authentik
+          export AUTHENTIK_DATA_ROOT=/opt/vps-devops/authentik/data
+          export AUTHENTIK_MEDIA_DIR=/opt/vps-devops/authentik/data/media
+          export AUTHENTIK_POSTGRES_DATA_DIR=/opt/vps-devops/authentik/data/postgresql
+          export AUTHENTIK_CERTS_DIR=/opt/vps-devops/authentik/data/certs
+          export AUTHENTIK_TEMPLATES_DIR=/opt/vps-devops/authentik/data/custom-templates
+          export AUTHENTIK_BACKUP_TMP_DIR=/opt/vps-devops/authentik/data/.backup-tmp
+          export AUTHENTIK_RESTORE_STAGING_DIR=/opt/vps-devops/backups/authentik-staging
+          export AUTHENTIK_POSTGRES_CONTAINER=authentik-postgresql-1
+          export AUTHENTIK_SERVER_CONTAINER=authentik-server-1
+          export AUTHENTIK_WORKER_CONTAINER=authentik-worker-1
+          export AUTHENTIK_ARCHIVE_PREFIX=authentik
+        mode: "0600"
+
+    - name: Copy Authentik backup script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/scripts/backup-authentik.sh"
+        dest: /opt/vps-devops/scripts/backup-authentik.sh
+        mode: "0750"
+
+    - name: Copy Authentik restore script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/scripts/restore-authentik.sh"
+        dest: /opt/vps-devops/scripts/restore-authentik.sh
+        mode: "0750"
 
     - name: Ensure proxy network exists
       community.docker.docker_network:
         name: proxy
         ipam_config:
           - subnet: "{{ secrets.proxy_subnet }}"
-      register: authentik_proxy_network_result
 
     - name: Render Authentik compose file
       ansible.builtin.template:
         src: "{{ repo_root }}/authentik/docker-compose.yml.j2"
         dest: /opt/vps-devops/authentik/docker-compose.yml
         mode: "0644"
-      register: authentik_compose_result
 
-    - name: Check whether Authentik env file already exists
-      ansible.builtin.stat:
-        path: /opt/vps-devops/authentik/.env
-      register: authentik_env_file
-
-    - name: Read existing Authentik env file
-      ansible.builtin.slurp:
-        src: /opt/vps-devops/authentik/.env
-      register: authentik_env_existing_file
-      when: authentik_env_file.stat.exists
-      no_log: true
-
-    - name: Set existing Authentik env content
+    - name: Build Authentik env content
       ansible.builtin.set_fact:
-        authentik_env_existing_content: "{{ authentik_env_existing_file.content | b64decode }}"
-      when: authentik_env_file.stat.exists
-      no_log: true
-
-    - name: Generate PostgreSQL password for Authentik when missing
-      ansible.builtin.set_fact:
-        authentik_pg_pass: "{{ lookup('ansible.builtin.password', '/dev/null length=48 chars=ascii_letters,digits') }}"
-      when:
-        - not authentik_env_file.stat.exists
-          or (authentik_env_existing_content | default('') | regex_findall('(?m)^PG_PASS=(.+)$') | first | default('', true)) == ''
-      no_log: true
-
-    - name: Reuse existing PostgreSQL password for Authentik
-      ansible.builtin.set_fact:
-        authentik_pg_pass: "{{ authentik_env_existing_content | regex_findall('(?m)^PG_PASS=(.+)$') | first }}"
-      when:
-        - authentik_env_file.stat.exists
-        - (authentik_env_existing_content | default('') | regex_findall('(?m)^PG_PASS=(.+)$') | first | default('', true)) != ''
-      no_log: true
-
-    - name: Generate Authentik secret key when missing
-      ansible.builtin.set_fact:
-        authentik_secret_key: "{{ lookup('ansible.builtin.password', '/dev/null length=80 chars=ascii_letters,digits') }}"
-      when:
-        - not authentik_env_file.stat.exists
-          or (authentik_env_existing_content | default('') | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first | default('', true)) == ''
-      no_log: true
-
-    - name: Reuse existing Authentik secret key
-      ansible.builtin.set_fact:
-        authentik_secret_key: "{{ authentik_env_existing_content | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first }}"
-      when:
-        - authentik_env_file.stat.exists
-        - (authentik_env_existing_content | default('') | regex_findall('(?m)^AUTHENTIK_SECRET_KEY=(.+)$') | first | default('', true)) != ''
-      no_log: true
-
-    - name: Write Authentik environment file
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/authentik/.env
-        content: |
-          PG_PASS={{ authentik_pg_pass }}
-          AUTHENTIK_SECRET_KEY={{ authentik_secret_key }}
+        authentik_env_content: |
+          PG_PASS={{ authentik_secrets.PG_PASS }}
+          AUTHENTIK_SECRET_KEY={{ authentik_secrets.AUTHENTIK_SECRET_KEY }}
           AUTHENTIK_BOOTSTRAP_PASSWORD={{ authentik_secrets.AUTHENTIK_BOOTSTRAP_PASSWORD }}
           {% if authentik_secrets.AUTHENTIK_BOOTSTRAP_EMAIL is defined %}
           AUTHENTIK_BOOTSTRAP_EMAIL={{ authentik_secrets.AUTHENTIK_BOOTSTRAP_EMAIL }}
@@ -206,121 +416,120 @@
           AUTHENTIK_TAG={{ authentik_version }}
           AUTHENTIK_UID={{ authentik_deploy_uid }}
           AUTHENTIK_GID={{ authentik_deploy_gid }}
-        mode: "0600"
-      register: authentik_env_result
       no_log: true
 
-    - name: Set Authentik recreate fact
-      ansible.builtin.set_fact:
-        authentik_needs_recreate: >-
-          {{
-            authentik_proxy_network_result.changed
-            or authentik_compose_result.changed
-            or (authentik_env_result.changed | default(false))
-          }}
+    - name: Deploy Authentik with temporary .env
+      block:
+        - name: Write Authentik .env
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/authentik/.env
+            content: "{{ authentik_env_content }}"
+            mode: "0600"
+          no_log: true
 
-    - name: Recreate Authentik when required
-      community.docker.docker_compose_v2:
-        project_src: /opt/vps-devops/authentik
-        state: present
-        recreate: always
-      when: authentik_needs_recreate
+        - name: Recreate Authentik on every deploy
+          community.docker.docker_compose_v2:
+            project_src: /opt/vps-devops/authentik
+            state: present
+            recreate: always
 
-    - name: Ensure Authentik is running without forced recreate
-      community.docker.docker_compose_v2:
-        project_src: /opt/vps-devops/authentik
-        state: present
-      when: not authentik_needs_recreate
+        - name: Wait for Authentik server container to report healthy startup
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.core.models import User
+                print("ready")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_shell_ready
+          changed_when: false
+          retries: 30
+          delay: 5
+          until:
+            - authentik_shell_ready.rc == 0
+            - "'ready' in authentik_shell_ready.stdout"
+          when:
+            - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+            - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
 
-    - name: Wait for Authentik server container to report healthy startup
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - exec
-          - -T
-          - server
-          - ak
-          - shell
-          - -c
-          - |
-            from authentik.core.models import User
-            print("ready")
-      args:
-        chdir: /opt/vps-devops/authentik
-      register: authentik_shell_ready
-      changed_when: false
-      retries: 30
-      delay: 5
-      until:
-        - authentik_shell_ready.rc == 0
-        - "'ready' in authentik_shell_ready.stdout"
-      when:
-        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
-        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+        - name: Create additional Authentik superuser once
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.core.models import User
+                username = {{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME | to_json }}
+                password = {{ authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | to_json }}
+                email = {{ (authentik_secrets.AUTHENTIK_ADMIN_EMAIL | default("")) | to_json }}
+                existing = User.objects.filter(username=username).exists()
+                changed = False
+                if not existing:
+                    user = User(username=username, email=email)
+                    user.name = username
+                    user.is_superuser = True
+                    user.set_password(password)
+                    user.save()
+                    changed = True
+                print("changed" if changed else "ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_admin_user_create
+          changed_when: "'changed' in authentik_admin_user_create.stdout"
+          retries: 30
+          delay: 5
+          until: authentik_admin_user_create.rc == 0
+          when:
+            - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+            - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
 
-    - name: Create additional Authentik superuser once
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - exec
-          - -T
-          - server
-          - ak
-          - shell
-          - -c
-          - |
-            from authentik.core.models import User
-            username = {{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME | to_json }}
-            password = {{ authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | to_json }}
-            email = {{ (authentik_secrets.AUTHENTIK_ADMIN_EMAIL | default("")) | to_json }}
-            existing = User.objects.filter(username=username).exists()
-            changed = False
-            if not existing:
-                user = User(username=username, email=email)
-                user.name = username
-                user.is_superuser = True
-                user.set_password(password)
-                user.save()
-                changed = True
-            print("changed" if changed else "ok")
-      args:
-        chdir: /opt/vps-devops/authentik
-      register: authentik_admin_user_create
-      changed_when: "'changed' in authentik_admin_user_create.stdout"
-      retries: 30
-      delay: 5
-      until: authentik_admin_user_create.rc == 0
-      when:
-        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
-        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
-
-    - name: Ensure additional Authentik admin user has admin-panel access
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - exec
-          - -T
-          - server
-          - ak
-          - create_admin_group
-          - "{{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME }}"
-      args:
-        chdir: /opt/vps-devops/authentik
-      register: authentik_admin_group_result
-      changed_when: >-
-        ('already exists' not in (authentik_admin_group_result.stdout | default('') ~ authentik_admin_group_result.stderr | default('')))
-      retries: 10
-      delay: 5
-      until: authentik_admin_group_result.rc == 0
-      when:
-        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
-        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
-        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+        - name: Ensure additional Authentik admin user has admin-panel access
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - create_admin_group
+              - "{{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME }}"
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_admin_group_result
+          changed_when: >-
+            ('already exists' not in (authentik_admin_group_result.stdout | default('') ~ authentik_admin_group_result.stderr | default('')))
+          retries: 10
+          delay: 5
+          until: authentik_admin_group_result.rc == 0
+          when:
+            - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+            - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+            - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+      always:
+        - name: Remove Authentik temporary env artifacts
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /opt/vps-devops/authentik/.env
+            - /opt/vps-devops/authentik/.env.sha256

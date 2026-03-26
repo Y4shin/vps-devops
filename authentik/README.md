@@ -10,17 +10,27 @@ The current setup deploys:
 
 and exposes Authentik through Traefik on `https://authentik.<domain>`.
 
-The first deploy generates the required `PG_PASS` and `AUTHENTIK_SECRET_KEY`
-directly on the VPS and stores them in `/opt/vps-devops/authentik/.env`.
-
 Create `authentik/.env.sops.yaml` before deploying Authentik and provide at
 least:
 
+- `PG_PASS`
+- `AUTHENTIK_SECRET_KEY`
 - `AUTHENTIK_BOOTSTRAP_PASSWORD`
+- `borg_path`
+- `borg_passphrase`
 - `AUTHENTIK_BOOTSTRAP_EMAIL` (optional)
 - `AUTHENTIK_ADMIN_USERNAME` (optional)
 - `AUTHENTIK_ADMIN_PASSWORD` (required if `AUTHENTIK_ADMIN_USERNAME` is set)
 - `AUTHENTIK_ADMIN_EMAIL` (optional)
+
+The playbook renders `/opt/vps-devops/authentik/.env` from those SOPS-managed
+values during deployment, uses it for Docker Compose operations, and removes it
+again afterward. `PG_PASS` and `AUTHENTIK_SECRET_KEY` are no longer generated
+on the VPS.
+
+Authentik backups use their own Borg repository path and passphrase from
+`authentik/.env.sops.yaml`, while still connecting to the shared Hetzner
+storage box configured in `secrets.sops.yaml`.
 
 This uses authentik's official automated-install bootstrap variables for the
 default `akadmin` user. Per authentik's documentation, the bootstrap password
@@ -35,10 +45,17 @@ overwritten.
 
 Persistent data is stored in:
 
-- Docker named volume `authentik_database`
-- `/opt/vps-devops/authentik/data`
-- `/opt/vps-devops/authentik/certs`
-- `/opt/vps-devops/authentik/custom-templates`
+- `/opt/vps-devops/authentik/data/postgresql`
+- `/opt/vps-devops/authentik/data/media`
+- `/opt/vps-devops/authentik/data/certs`
+- `/opt/vps-devops/authentik/data/custom-templates`
+
+Backup and restore scripts are deployed to `/opt/vps-devops/scripts` and can be
+run via:
+
+- `task authentik:backup:perform`
+- `task authentik:backup:restore`
+- `task authentik:backup:info`
 
 App-owned Authentik blueprints can live in `*/authentik-blueprints/` at the repo
 root. The Authentik playbook deploys every `*.yaml` and `*.yaml.j2` file from

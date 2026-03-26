@@ -10,12 +10,12 @@ submodule_path="${2:-}"
 action="${3:-}"
 
 if [[ -z "$key_file" || -z "$submodule_path" || -z "$action" ]]; then
-  echo "Usage: $0 <key-file> <submodule-path> <init|update>" >&2
+  echo "Usage: $0 <key-file> <submodule-path> <init|checkout|update>" >&2
   exit 1
 fi
 
 case "$action" in
-  init)
+  init|checkout)
     git_command="git submodule update --init -- \"${submodule_path}\""
     ;;
   update)
