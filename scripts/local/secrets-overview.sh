@@ -41,5 +41,14 @@ fi
     if sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
       printf 'Bootstrap email: %s\n' "$(sops -d --extract '["AUTHENTIK_BOOTSTRAP_EMAIL"]' authentik/.env.sops.yaml)"
     fi
+    if sops -d --extract '["AUTHENTIK_ADMIN_USERNAME"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Additional admin username: %s\n' "$(sops -d --extract '["AUTHENTIK_ADMIN_USERNAME"]' authentik/.env.sops.yaml)"
+    fi
+    if sops -d --extract '["AUTHENTIK_ADMIN_PASSWORD"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Additional admin password: %s\n' "$(sops -d --extract '["AUTHENTIK_ADMIN_PASSWORD"]' authentik/.env.sops.yaml)"
+    fi
+    if sops -d --extract '["AUTHENTIK_ADMIN_EMAIL"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Additional admin email: %s\n' "$(sops -d --extract '["AUTHENTIK_ADMIN_EMAIL"]' authentik/.env.sops.yaml)"
+    fi
   fi
 } | "$pager"

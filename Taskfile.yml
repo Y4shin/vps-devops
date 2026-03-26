@@ -48,6 +48,11 @@ tasks:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
 
+  authentik:reset:
+    desc: Destructively reset Authentik state on the VPS after interactive confirmation
+    cmds:
+      - bash ./scripts/local/reset-authentik.sh
+
   deploy:witness:
     desc: Deploy Witness only
     deps: [decrypt]

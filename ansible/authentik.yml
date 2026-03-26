@@ -27,11 +27,66 @@
         authentik_secrets: "{{ lookup('community.sops.sops', repo_root + '/authentik/.env.sops.yaml') | from_yaml }}"
       no_log: true
 
+    - name: Discover Authentik blueprint files in the repo
+      ansible.builtin.find:
+        paths: "{{ repo_root }}"
+        recurse: true
+        file_type: file
+        patterns:
+          - "*.yaml"
+          - "*.yaml.j2"
+      delegate_to: localhost
+      become: false
+      register: authentik_blueprint_files_found
+
+    - name: Set Authentik blueprint facts
+      ansible.builtin.set_fact:
+        authentik_blueprint_files: >-
+          {{
+            authentik_blueprint_files_found.files
+            | selectattr('path', 'search', '/authentik-blueprints/')
+            | list
+          }}
+
     - name: Create Authentik directory
       ansible.builtin.file:
         path: /opt/vps-devops/authentik
         state: directory
         mode: "0755"
+
+    - name: Create Authentik blueprints directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /opt/vps-devops/authentik/blueprints
+        - /opt/vps-devops/authentik/blueprints/apps
+
+    - name: Create per-app Authentik blueprint directories
+      ansible.builtin.file:
+        path: "/opt/vps-devops/authentik/blueprints/apps/{{ item.path.split('/')[-3] }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ authentik_blueprint_files }}"
+
+    - name: Copy static Authentik blueprint fragments
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "/opt/vps-devops/authentik/blueprints/apps/{{ item.path.split('/')[-3] }}/{{ item.path | basename }}"
+        mode: "0644"
+      loop: "{{ authentik_blueprint_files }}"
+      when: item.path is not search('\\.j2$')
+      register: authentik_blueprint_copy_result
+
+    - name: Render templated Authentik blueprint fragments
+      ansible.builtin.template:
+        src: "{{ item.path }}"
+        dest: "/opt/vps-devops/authentik/blueprints/apps/{{ item.path.split('/')[-3] }}/{{ item.path | basename | regex_replace('\\.j2$', '') }}"
+        mode: "0644"
+      loop: "{{ authentik_blueprint_files }}"
+      when: item.path is search('\\.j2$')
+      register: authentik_blueprint_template_result
 
     - name: Read deploy user entry
       ansible.builtin.command:
@@ -176,3 +231,96 @@
         project_src: /opt/vps-devops/authentik
         state: present
       when: not authentik_needs_recreate
+
+    - name: Wait for Authentik server container to report healthy startup
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - server
+          - ak
+          - shell
+          - -c
+          - |
+            from authentik.core.models import User
+            print("ready")
+      args:
+        chdir: /opt/vps-devops/authentik
+      register: authentik_shell_ready
+      changed_when: false
+      retries: 30
+      delay: 5
+      until:
+        - authentik_shell_ready.rc == 0
+        - "'ready' in authentik_shell_ready.stdout"
+      when:
+        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+
+    - name: Create additional Authentik superuser once
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - server
+          - ak
+          - shell
+          - -c
+          - |
+            from authentik.core.models import User
+            username = {{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME | to_json }}
+            password = {{ authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | to_json }}
+            email = {{ (authentik_secrets.AUTHENTIK_ADMIN_EMAIL | default("")) | to_json }}
+            existing = User.objects.filter(username=username).exists()
+            changed = False
+            if not existing:
+                user = User(username=username, email=email)
+                user.name = username
+                user.is_superuser = True
+                user.set_password(password)
+                user.save()
+                changed = True
+            print("changed" if changed else "ok")
+      args:
+        chdir: /opt/vps-devops/authentik
+      register: authentik_admin_user_create
+      changed_when: "'changed' in authentik_admin_user_create.stdout"
+      retries: 30
+      delay: 5
+      until: authentik_admin_user_create.rc == 0
+      when:
+        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+
+    - name: Ensure additional Authentik admin user has admin-panel access
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - server
+          - ak
+          - create_admin_group
+          - "{{ authentik_secrets.AUTHENTIK_ADMIN_USERNAME }}"
+      args:
+        chdir: /opt/vps-devops/authentik
+      register: authentik_admin_group_result
+      changed_when: >-
+        ('already exists' not in (authentik_admin_group_result.stdout | default('') ~ authentik_admin_group_result.stderr | default('')))
+      retries: 10
+      delay: 5
+      until: authentik_admin_group_result.rc == 0
+      when:
+        - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
+        - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
+        - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
