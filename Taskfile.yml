@@ -203,24 +203,32 @@ tasks:
 
   submodule:init:reporting-tool:
     desc: Initialize reporting-tool/app submodule using its deploy key (idempotent)
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
     cmds:
       - bash ./scripts/local/submodule.sh reporting-tool/deploy_key.sops reporting-tool/app init
 
   submodule:update:reporting-tool:
     desc: Update reporting-tool/app submodule using its deploy key
     deps: [submodule:init:reporting-tool]
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
     cmds:
       - bash ./scripts/local/submodule.sh reporting-tool/deploy_key.sops reporting-tool/app update
       - git add reporting-tool/app
 
   submodule:init:conference-tool:
     desc: Initialize conference-tool/app submodule using its deploy key (idempotent)
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
     cmds:
       - bash ./scripts/local/submodule.sh conference-tool/deploy_key.sops conference-tool/app init
 
   submodule:update:conference-tool:
     desc: Update conference-tool/app submodule using its deploy key
     deps: [submodule:init:conference-tool]
+    env:
+      SOPS_AGE_KEY_FILE: ./age.key
     cmds:
       - bash ./scripts/local/submodule.sh conference-tool/deploy_key.sops conference-tool/app update
       - git add conference-tool/app

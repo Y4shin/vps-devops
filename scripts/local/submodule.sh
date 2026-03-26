@@ -3,6 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
+export SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-${repo_root}/age.key}"
 
 key_file="${1:-}"
 submodule_path="${2:-}"
@@ -18,7 +19,7 @@ case "$action" in
     git_command="git submodule update --init -- \"${submodule_path}\""
     ;;
   update)
-    git_command="git submodule update --remote --merge -- \"${submodule_path}\""
+    git_command="git -C \"${submodule_path}\" -c core.autocrlf=input pull --ff-only"
     ;;
   *)
     echo "Unsupported action: ${action}" >&2
@@ -28,6 +29,7 @@ esac
 
 (
   cd "$repo_root"
+  git submodule sync -- "$submodule_path"
   sops exec-file --no-fifo "$key_file" \
     "chmod 600 {} && GIT_SSH_COMMAND=\"ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new\" ${git_command}"
 )

@@ -113,11 +113,10 @@ fi
 
 log_step "Copying SQLite database into local staging"
 docker run --rm \
-  -u "$(id -u):$(id -g)" \
   -v "${REPORTING_TOOL_DB_VOLUME}:/data:ro" \
-  -v "${REPORTING_TOOL_STAGING_DIR}/db:/snapshot" \
   alpine:3.22 \
-  sh -c 'cp /data/app.db /snapshot/app.db && chmod 600 /snapshot/app.db'
+  cat /data/app.db > "${REPORTING_TOOL_STAGING_DIR}/db/app.db"
+chmod 600 "${REPORTING_TOOL_STAGING_DIR}/db/app.db"
 
 log_step "Mirroring bucket ${S3_BUCKET} into local staging"
 aws s3 sync \
