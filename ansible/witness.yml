@@ -219,6 +219,61 @@
         dest: /opt/vps-devops/scripts/backup.sh
         mode: "0755"
 
+    - name: Install reporting-tool backup systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/reporting-tool-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run reporting-tool Borg backup
+          Wants=network-online.target
+          After=network-online.target docker.service
+
+          [Service]
+          Type=oneshot
+          WorkingDirectory=/opt/vps-devops/scripts
+          ExecStart=/bin/bash /opt/vps-devops/scripts/backup-reporting-tool.sh
+
+          [Install]
+          WantedBy=multi-user.target
+      become: true
+      register: reporting_tool_backup_service_unit
+
+    - name: Install reporting-tool backup systemd timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/reporting-tool-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Schedule daily reporting-tool Borg backup
+
+          [Timer]
+          OnCalendar=*-*-* 04:30:00
+          Persistent=true
+          Unit=reporting-tool-backup.service
+
+          [Install]
+          WantedBy=timers.target
+      become: true
+      register: reporting_tool_backup_timer_unit
+
+    - name: Reload systemd after reporting-tool backup unit changes
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      become: true
+      when: reporting_tool_backup_service_unit.changed or reporting_tool_backup_timer_unit.changed
+
+    - name: Enable and start reporting-tool backup timer
+      ansible.builtin.systemd_service:
+        name: reporting-tool-backup.timer
+        enabled: true
+        state: "{{ 'restarted' if reporting_tool_backup_service_unit.changed or reporting_tool_backup_timer_unit.changed else 'started' }}"
+      become: true
+
     - name: Backup reporting-tool before deploy
       ansible.builtin.command:
         cmd: bash /opt/vps-devops/scripts/backup-reporting-tool.sh

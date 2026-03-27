@@ -9,7 +9,6 @@
     - name: Set secrets variable
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        traefik_secrets: "{{ lookup('community.sops.sops', repo_root + '/traefik/.env.sops.yaml') | from_yaml }}"
       no_log: true
 
     - name: Create Traefik directory
@@ -46,44 +45,6 @@
         mode: "0644"
       register: coredns_config_result
 
-    - name: Build Traefik env content
-      ansible.builtin.set_fact:
-        traefik_env_content: |
-          TRAEFIK_DASHBOARD_USER={{ traefik_secrets.TRAEFIK_DASHBOARD_USER }}
-          TRAEFIK_DASHBOARD_PASSWORD_HASH={{ traefik_secrets.TRAEFIK_DASHBOARD_PASSWORD_HASH | replace('$', '$$') }}
-      no_log: true
-
-    - name: Build Traefik env hash
-      ansible.builtin.set_fact:
-        traefik_env_hash: "{{ traefik_env_content | hash('sha256') }}"
-      no_log: true
-
-    - name: Read previous Traefik env hash
-      ansible.builtin.slurp:
-        src: /opt/vps-devops/traefik/.env.sha256
-      register: traefik_env_hash_file
-      failed_when: false
-      no_log: true
-
-    - name: Decide whether Traefik env changed
-      ansible.builtin.set_fact:
-        traefik_env_changed: "{{ (traefik_env_hash_file.content | default('') | b64decode | trim) != traefik_env_hash }}"
-      no_log: true
-
-    - name: Write Traefik .env
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/traefik/.env
-        content: "{{ traefik_env_content }}"
-        mode: "0600"
-      no_log: true
-
-    - name: Store Traefik env hash
-      ansible.builtin.copy:
-        dest: /opt/vps-devops/traefik/.env.sha256
-        content: "{{ traefik_env_hash }}\n"
-        mode: "0600"
-      no_log: true
-
     - name: Decide whether Traefik needs full recreate
       ansible.builtin.set_fact:
         traefik_needs_recreate: >-
@@ -92,7 +53,6 @@
             or traefik_config_result.changed
             or traefik_compose_result.changed
             or coredns_config_result.changed
-            or traefik_env_changed
           }}
 
     - name: Recreate Traefik when required
@@ -108,7 +68,11 @@
         state: present
       when: not traefik_needs_recreate
 
-    - name: Remove Traefik .env
+    - name: Remove retired Traefik env artifacts
       ansible.builtin.file:
         path: /opt/vps-devops/traefik/.env
+        state: absent
+    - name: Remove retired Traefik env hash artifact
+      ansible.builtin.file:
+        path: /opt/vps-devops/traefik/.env.sha256
         state: absent

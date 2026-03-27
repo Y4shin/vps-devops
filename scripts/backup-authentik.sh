@@ -64,6 +64,7 @@ require_command flock
 require_command jq
 
 LOCK_FILE="${AUTHENTIK_DATA_ROOT}.lock"
+GLOBAL_LOCK_FILE="/opt/vps-devops/backups/.backup-job.lock"
 log_step "Acquiring backup lock at ${LOCK_FILE}"
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
@@ -71,6 +72,11 @@ if ! flock -n 9; then
   echo "Another Authentik backup or restore appears to be running." >&2
   exit 1
 fi
+
+log_info "Waiting for shared backup lock at ${GLOBAL_LOCK_FILE}"
+mkdir -p "$(dirname "$GLOBAL_LOCK_FILE")"
+exec 8>"$GLOBAL_LOCK_FILE"
+flock 8
 
 restart_server=0
 restart_worker=0

@@ -35,7 +35,6 @@ It does not currently optimize for:
 
 - Point-in-time recovery
 - Zero-downtime backup snapshots
-- Fully automated scheduled backups
 - Whole-stack disaster recovery from one command
 
 ## Data Inventory
@@ -126,8 +125,14 @@ Backups run in two ways:
   there was a previous deployment
 - Manually via `task witness:backup:perform`
 
-There is also documentation for adding an optional cron job, but scheduling is
-not currently managed by Ansible.
+Backups are also scheduled by Ansible-managed systemd timers:
+
+- Authentik daily at `04:00`
+- Witness (`reporting-tool`) daily at `04:30`
+
+The backup scripts also take a shared cross-service lock under
+`/opt/vps-devops/backups`, so the two scheduled jobs cannot run at the same
+time even if one backup overruns its normal window.
 
 ### 3. What the backup script does
 
@@ -225,7 +230,6 @@ Useful task entry points:
 
 Current gaps worth tracking:
 
-- Scheduled backups are optional and manually configured.
 - Traefik ACME state is not backed up, so certificate re-issuance may be needed
   after host loss.
 - The Witness backup is not point-in-time across SQLite and object storage; it
@@ -242,10 +246,8 @@ Current gaps worth tracking:
 
 Reasonable next improvements, in priority order:
 
-1. Manage scheduled Witness backups via Ansible systemd timer or cron.
-2. Add a small Traefik backup for the `letsencrypt` volume.
-3. Manage scheduled Authentik backups via Ansible systemd timer or cron.
-4. Decide whether local `uploads/` should be removed from the Witness compose
+1. Add a small Traefik backup for the `letsencrypt` volume.
+2. Decide whether local `uploads/` should be removed from the Witness compose
    file or explicitly backed up as a safety net.
 
 ## Authentik Backup Design

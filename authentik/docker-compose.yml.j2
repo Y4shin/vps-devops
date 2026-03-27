@@ -43,15 +43,24 @@ services:
       - ./data/media:/data
       - ./data/custom-templates:/templates
     networks:
-      - proxy
-      - internal
+      proxy:
+        aliases:
+          - authentik-server
+      internal: {}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
       - "traefik.http.routers.authentik.rule=Host(`authentik.{{ secrets.domain }}`)"
       - "traefik.http.routers.authentik.entrypoints=websecure"
       - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik.service=authentik"
       - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      - "traefik.http.routers.authentik-traefik-outpost.rule=Host(`traefik.{{ secrets.domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-traefik-outpost.entrypoints=websecure"
+      - "traefik.http.routers.authentik-traefik-outpost.priority=100"
+      - "traefik.http.routers.authentik-traefik-outpost.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik-traefik-outpost.service=authentik-traefik-outpost"
+      - "traefik.http.services.authentik-traefik-outpost.loadbalancer.server.port=9000"
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.2.1}

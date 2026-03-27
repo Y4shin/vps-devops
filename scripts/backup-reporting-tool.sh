@@ -67,6 +67,7 @@ export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION="$S3_REGION"
 
 LOCK_FILE="${REPORTING_TOOL_STAGING_DIR}.lock"
+GLOBAL_LOCK_FILE="/opt/vps-devops/backups/.backup-job.lock"
 log_step "Acquiring backup lock at ${LOCK_FILE}"
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
@@ -74,6 +75,11 @@ if ! flock -n 9; then
   echo "Another reporting-tool backup or restore appears to be running." >&2
   exit 1
 fi
+
+log_info "Waiting for shared backup lock at ${GLOBAL_LOCK_FILE}"
+mkdir -p "$(dirname "$GLOBAL_LOCK_FILE")"
+exec 8>"$GLOBAL_LOCK_FILE"
+flock 8
 
 app_restart_required=0
 

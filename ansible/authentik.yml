@@ -84,6 +84,24 @@
         - /opt/vps-devops/authentik/blueprints
         - /opt/vps-devops/authentik/blueprints/apps
 
+    - name: Create Authentik media custom directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/authentik/data/media/custom
+        state: directory
+        mode: "0755"
+
+    - name: Copy Authentik branding background image
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/authentik/default_bg.webp"
+        dest: /opt/vps-devops/authentik/data/media/custom/default_bg.webp
+        mode: "0644"
+
+    - name: Copy Traefik branding logo
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/traefik/traefik-logo.png"
+        dest: /opt/vps-devops/authentik/data/media/custom/traefik-logo.png
+        mode: "0644"
+
     - name: Create per-app Authentik blueprint directories
       ansible.builtin.file:
         path: "/opt/vps-devops/authentik/blueprints/apps/{{ item.path.split('/')[-3] }}"
@@ -390,6 +408,61 @@
         dest: /opt/vps-devops/scripts/restore-authentik.sh
         mode: "0750"
 
+    - name: Install Authentik backup systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/authentik-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run Authentik Borg backup
+          Wants=network-online.target
+          After=network-online.target docker.service
+
+          [Service]
+          Type=oneshot
+          WorkingDirectory=/opt/vps-devops/scripts
+          ExecStart=/bin/bash /opt/vps-devops/scripts/backup-authentik.sh
+
+          [Install]
+          WantedBy=multi-user.target
+      become: true
+      register: authentik_backup_service_unit
+
+    - name: Install Authentik backup systemd timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/authentik-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Schedule daily Authentik Borg backup
+
+          [Timer]
+          OnCalendar=*-*-* 04:00:00
+          Persistent=true
+          Unit=authentik-backup.service
+
+          [Install]
+          WantedBy=timers.target
+      become: true
+      register: authentik_backup_timer_unit
+
+    - name: Reload systemd after Authentik backup unit changes
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      become: true
+      when: authentik_backup_service_unit.changed or authentik_backup_timer_unit.changed
+
+    - name: Enable and start Authentik backup timer
+      ansible.builtin.systemd_service:
+        name: authentik-backup.timer
+        enabled: true
+        state: "{{ 'restarted' if authentik_backup_service_unit.changed or authentik_backup_timer_unit.changed else 'started' }}"
+      become: true
+
     - name: Ensure proxy network exists
       community.docker.docker_network:
         name: proxy
@@ -456,11 +529,6 @@
           until:
             - authentik_shell_ready.rc == 0
             - "'ready' in authentik_shell_ready.stdout"
-          when:
-            - authentik_secrets.AUTHENTIK_ADMIN_USERNAME is defined
-            - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
-            - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
-            - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
 
         - name: Create additional Authentik superuser once
           ansible.builtin.command:
@@ -500,6 +568,72 @@
             - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
             - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
             - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+
+        - name: Seed Traefik dashboard access group from existing Authentik superusers when empty
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.core.models import Group, User
+                group = Group.objects.filter(name="traefik-dashboard-access").first()
+                if group is None:
+                    raise SystemExit(1)
+                if group.users.exists():
+                    print("ok")
+                else:
+                    superusers = list(
+                        User.objects.filter(groups__is_superuser=True).distinct().order_by("pk")
+                    )
+                    if superusers:
+                        group.users.add(*superusers)
+                        print("changed")
+                    else:
+                        print("ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_traefik_dashboard_group_seed
+          changed_when: "'changed' in authentik_traefik_dashboard_group_seed.stdout"
+          retries: 30
+          delay: 5
+          until: authentik_traefik_dashboard_group_seed.rc == 0
+
+        - name: Set flow background on Authentik and Traefik brands
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.brands.models import Brand
+                DOMAINS = ["authentik." + {{ secrets.domain | to_json }}, "traefik." + {{ secrets.domain | to_json }}]
+                CSS = ".pf-c-login { background-image: url('/media/custom/default_bg.webp') !important; background-size: cover !important; background-position: center !important; }"
+                changed = []
+                for domain in DOMAINS:
+                    brand, _ = Brand.objects.get_or_create(domain=domain)
+                    if brand.branding_custom_css != CSS:
+                        brand.branding_custom_css = CSS
+                        brand.save(update_fields=["branding_custom_css"])
+                        changed.append(domain)
+                print("changed" if changed else "ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_brand_background
+          changed_when: "'changed' in authentik_brand_background.stdout"
+          retries: 10
+          delay: 5
+          until: authentik_brand_background.rc == 0
 
         - name: Ensure additional Authentik admin user has admin-panel access
           ansible.builtin.command:

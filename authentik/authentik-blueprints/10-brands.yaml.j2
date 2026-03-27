@@ -1,0 +1,20 @@
+version: 1
+metadata:
+  name: vps-brands
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  - model: authentik_brands.brand
+    state: present
+    identifiers:
+      domain: authentik.{{ secrets.domain }}
+    attrs:
+      branding_title: Authentik
+
+  - model: authentik_brands.brand
+    state: present
+    identifiers:
+      domain: traefik.{{ secrets.domain }}
+    attrs:
+      branding_title: Traefik Dashboard
+      branding_logo: /media/custom/traefik-logo.png

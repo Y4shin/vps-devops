@@ -155,24 +155,25 @@ creation_rules:
     age: age1xxxxxxxxxx...
 ```
 
-### 3b. Encrypt Traefik secrets
+### 3b. Plan Traefik dashboard access in Authentik
 
-Generate an htpasswd hash for the dashboard:
+The Traefik dashboard is protected by Authentik group membership, not by a
+separate Traefik basic-auth password file.
 
-```bash
-htpasswd -nbB admin 'your-strong-password'
-# Output: admin:$2y$05$...
-```
+During `task deploy`, the Authentik blueprints in this repo create:
 
-```bash
-cat > /tmp/traefik.env.yaml <<EOF
-TRAEFIK_DASHBOARD_USER: admin
-TRAEFIK_DASHBOARD_PASSWORD_HASH: "\$2y\$05\$your-hash-here"
-EOF
+- the group `traefik-dashboard-access`
+- an Authentik application/provider for `https://traefik.<domain>`
 
-SOPS_AGE_KEY_FILE=./age.key sops -e /tmp/traefik.env.yaml > traefik/.env.sops.yaml
-rm /tmp/traefik.env.yaml
-```
+On migration from the old basic-auth setup, the deploy also seeds the new group
+from the current Authentik superusers if the group is still empty, so existing
+admins do not lose access on cutover.
+
+After deploy, manage dashboard access by adding or removing users from
+`traefik-dashboard-access` in Authentik.
+
+If you still have an old local `traefik/.env.sops.yaml` from the basic-auth
+setup, it is no longer used and can be removed.
 
 ### 3c. Encrypt app secrets
 
@@ -264,7 +265,7 @@ To update it to a newer commit see the day-to-day operations section below.
 ### 3g. Commit and push
 
 ```bash
-git add .sops.yaml secrets.sops.yaml traefik/.env.sops.yaml authentik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
+git add .sops.yaml secrets.sops.yaml authentik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
 git commit -m "chore: initial repo setup with encrypted secrets and app submodule"
 git push
 ```
@@ -290,6 +291,9 @@ Verify:
 curl -I https://witness.your-domain.example.com
 curl -I https://traefik.your-domain.example.com
 ```
+
+For `https://traefik.your-domain.example.com`, expect an Authentik-driven
+redirect/login flow rather than an HTTP basic-auth prompt.
 
 ---
 
@@ -336,15 +340,19 @@ task secrets:updatekeys
 git add -A && git commit -m "chore: add teammate age key"
 ```
 
-### Schedule nightly backups (optional)
+### Scheduled nightly backups
+
+Backup scheduling is managed by the service playbooks.
+
+- `task deploy:authentik` installs and enables `authentik-backup.timer` for `04:00`
+- `task deploy:witness` installs and enables `reporting-tool-backup.timer` for `04:30`
+
+To inspect them on the server:
 
 ```bash
-task ssh
-# then run:
-# crontab -e
-# Add:
-# 0 3 * * * bash /opt/vps-devops/scripts/backup-reporting-tool.sh >> /var/log/borg-backup.log 2>&1
-# 0 4 * * * bash /opt/vps-devops/scripts/backup-authentik.sh >> /var/log/borg-backup.log 2>&1
+systemctl status authentik-backup.timer
+systemctl status reporting-tool-backup.timer
+systemctl list-timers --all | grep backup
 ```
 
 ### Inspect available Witness backups

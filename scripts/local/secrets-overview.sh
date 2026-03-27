@@ -32,7 +32,8 @@ fi
   echo
   echo "Traefik"
   echo "======="
-  printf 'Dashboard user: %s\n' "$(sops -d --extract '["TRAEFIK_DASHBOARD_USER"]' traefik/.env.sops.yaml)"
+  printf 'Dashboard access group: %s\n' "traefik-dashboard-access"
+  printf 'Dashboard auth source: %s\n' "Authentik forward auth"
   if [ -f authentik/.env.sops.yaml ]; then
     echo
     echo "Authentik"
