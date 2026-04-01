@@ -10,10 +10,28 @@ if ! command -v "$pager" >/dev/null 2>&1; then
   pager="cat"
 fi
 
+reporting_tool_admin_auth_mode="$(sops -d --extract '["ADMIN_AUTH_MODE"]' reporting-tool/.env.sops.yaml 2>/dev/null || true)"
+reporting_tool_admin_password="$(sops -d --extract '["ADMIN_PASSWORD"]' reporting-tool/.env.sops.yaml 2>/dev/null || true)"
+reporting_tool_admin_oidc_client_secret="$(sops -d --extract '["ADMIN_OIDC_CLIENT_SECRET"]' reporting-tool/.env.sops.yaml 2>/dev/null || true)"
+
+if [ -z "$reporting_tool_admin_auth_mode" ]; then
+  if [ -n "$reporting_tool_admin_oidc_client_secret" ]; then
+    reporting_tool_admin_auth_mode="oidc"
+  else
+    reporting_tool_admin_auth_mode="password"
+  fi
+fi
+
 {
   echo "Reporting Tool"
   echo "=============="
-  printf 'Admin password: %s\n' "$(sops -d --extract '["ADMIN_PASSWORD"]' reporting-tool/.env.sops.yaml)"
+  printf 'Admin auth mode: %s\n' "$reporting_tool_admin_auth_mode"
+  if [ "$reporting_tool_admin_auth_mode" = "password" ]; then
+    printf 'Admin password: %s\n' "$reporting_tool_admin_password"
+  else
+    printf 'Admin OIDC client secret: %s\n' "$reporting_tool_admin_oidc_client_secret"
+    printf 'Admin access group: %s\n' "reporting-tool-admin-access"
+  fi
   printf 'Session secret: %s\n' "$(sops -d --extract '["SESSION_SECRET"]' reporting-tool/.env.sops.yaml)"
   printf 'S3 access key id: %s\n' "$(sops -d --extract '["S3_ACCESS_KEY_ID"]' reporting-tool/.env.sops.yaml)"
   printf 'S3 secret access key: %s\n' "$(sops -d --extract '["S3_SECRET_ACCESS_KEY"]' reporting-tool/.env.sops.yaml)"
@@ -54,6 +72,30 @@ fi
     fi
     if sops -d --extract '["AUTHENTIK_ADMIN_EMAIL"]' authentik/.env.sops.yaml >/dev/null 2>&1; then
       printf 'Additional admin email: %s\n' "$(sops -d --extract '["AUTHENTIK_ADMIN_EMAIL"]' authentik/.env.sops.yaml)"
+    fi
+  fi
+  if [ -f mail/.env.sops.yaml ]; then
+    echo
+    echo "Mail"
+    echo "===="
+    if sops -d --extract '["MAIL_DOMAIN"]' mail/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Mail domain: %s\n' "$(sops -d --extract '["MAIL_DOMAIN"]' mail/.env.sops.yaml)"
+    else
+      printf 'Mail domain: %s\n' "$(sops -d --extract '["domain"]' secrets.sops.yaml)"
+    fi
+    if sops -d --extract '["MAIL_HOSTNAME"]' mail/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Mail hostname: %s\n' "$(sops -d --extract '["MAIL_HOSTNAME"]' mail/.env.sops.yaml)"
+    else
+      printf 'Mail hostname: %s\n' "mail.$(sops -d --extract '["domain"]' secrets.sops.yaml)"
+    fi
+    if sops -d --extract '["MAIL_SUBMISSION_ACCOUNT"]' mail/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Submission account: %s\n' "$(sops -d --extract '["MAIL_SUBMISSION_ACCOUNT"]' mail/.env.sops.yaml)"
+    else
+      printf 'Submission account: %s\n' "authentik@$(sops -d --extract '["domain"]' secrets.sops.yaml)"
+    fi
+    printf 'Submission password: %s\n' "$(sops -d --extract '["MAIL_SUBMISSION_PASSWORD"]' mail/.env.sops.yaml)"
+    if sops -d --extract '["MAIL_AUTHENTIK_FROM"]' mail/.env.sops.yaml >/dev/null 2>&1; then
+      printf 'Authentik from: %s\n' "$(sops -d --extract '["MAIL_AUTHENTIK_FROM"]' mail/.env.sops.yaml)"
     fi
   fi
 } | "$pager"

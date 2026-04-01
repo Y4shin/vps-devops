@@ -46,6 +46,9 @@ services:
       proxy:
         aliases:
           - authentik-server
+      {% if mail_secrets_file.stat.exists %}
+      mail: {}
+      {% endif %}
       internal: {}
     labels:
       - "traefik.enable=true"
@@ -61,6 +64,12 @@ services:
       - "traefik.http.routers.authentik-traefik-outpost.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik-traefik-outpost.service=authentik-traefik-outpost"
       - "traefik.http.services.authentik-traefik-outpost.loadbalancer.server.port=9000"
+      - "traefik.http.routers.authentik-foundry-outpost.rule=Host(`{{ foundry_public_hostname }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-foundry-outpost.entrypoints=websecure"
+      - "traefik.http.routers.authentik-foundry-outpost.priority=100"
+      - "traefik.http.routers.authentik-foundry-outpost.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik-foundry-outpost.service=authentik-foundry-outpost"
+      - "traefik.http.services.authentik-foundry-outpost.loadbalancer.server.port=9000"
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.2.1}
@@ -85,10 +94,18 @@ services:
       - ./data/certs:/certs
       - ./data/custom-templates:/templates
     networks:
+      {% if mail_secrets_file.stat.exists %}
+      - mail
+      {% endif %}
       - internal
 
 networks:
   proxy:
     external: true
     name: proxy
+  {% if mail_secrets_file.stat.exists %}
+  mail:
+    external: true
+    name: mail
+  {% endif %}
   internal: {}

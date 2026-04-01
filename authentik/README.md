@@ -63,3 +63,14 @@ those directories into `/opt/vps-devops/authentik/blueprints/apps/<app>/`.
 
 That lets each app contribute its own base groups, mappings, providers, or
 applications without editing one central Authentik blueprint file.
+
+In this repo, the reporting-tool blueprint now provisions the Witness admin
+OIDC application and the `reporting-tool-admin-access` group. Because that
+provider is rendered from repo-managed secrets, `reporting-tool/.env.sops.yaml`
+must define `ADMIN_OIDC_CLIENT_SECRET` before `task deploy:authentik` or
+`task deploy`.
+
+The Foundry blueprint provisions a proxy application named `Foundry VTT` and
+the `foundry-access` group. Access to the Foundry hostname is then enforced by
+Traefik forward-auth against Authentik rather than by a native Foundry SSO
+integration.

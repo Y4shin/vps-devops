@@ -1,0 +1,23 @@
+services:
+  mailserver:
+    image: {{ mail_image }}
+    hostname: {{ mail_hostname.split('.')[0] }}
+    domainname: {{ mail_domain }}
+    env_file:
+      - mailserver.env
+    restart: unless-stopped
+    stop_grace_period: 1m
+    volumes:
+      - ./data/mail-data:/var/mail
+      - ./data/mail-state:/var/mail-state
+      - ./data/mail-logs:/var/log/mail
+      - ./config:/tmp/docker-mailserver
+    networks:
+      mail:
+        aliases:
+          - mailserver
+
+networks:
+  mail:
+    external: true
+    name: mail

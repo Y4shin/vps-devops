@@ -5,8 +5,8 @@ in this repo, with an emphasis on the `reporting-tool` ("Witness") deployment.
 
 ## Scope
 
-Today, the repo contains real backup/restore workflows for Witness and
-Authentik.
+Today, the repo contains real backup/restore workflows for Witness,
+Authentik, and Foundry VTT.
 
 Covered:
 
@@ -14,6 +14,7 @@ Covered:
 - Witness S3-compatible object bucket
 - Authentik PostgreSQL database dump
 - Authentik bind-mounted persistent directories
+- Foundry bind-mounted user data
 - Backup metadata needed to identify what was captured
 
 Not covered by an automated backup flow in this repo:
@@ -21,6 +22,7 @@ Not covered by an automated backup flow in this repo:
 - Traefik runtime state such as ACME certificate storage
 - Docker images and build cache
 - The VPS itself as a machine image or block snapshot
+- Mail relay configuration and DKIM keys
 
 ## Goals
 
@@ -73,6 +75,26 @@ Primary data:
 Operationally, most Traefik configuration is reconstructable from Git + SOPS.
 The only runtime state that is worth backing up is the ACME certificate store.
 
+### Foundry VTT
+
+Primary data:
+
+- `/opt/vps-devops/foundry/data/Config`
+- `/opt/vps-devops/foundry/data/Data`
+- `/opt/vps-devops/foundry/data/Logs`
+
+Runtime/config data:
+
+- `/opt/vps-devops/foundry/docker-compose.yml`
+- `/opt/vps-devops/foundry/.env.sha256`
+
+Important note:
+
+- The deployed Foundry instance uses a bind-mounted `/data` directory rather
+  than a Docker named volume.
+- The Foundry application image is replaceable; the long-lived state is the
+  contents of `/opt/vps-devops/foundry/data`.
+
 ### Authentik
 
 Primary data:
@@ -119,16 +141,18 @@ repository path on the same Hetzner storage box.
 
 ### 2. When backups run
 
-Backups run in two ways:
+Backups run in three ways:
 
 - Automatically before a Witness deploy when the app source commit changed and
   there was a previous deployment
 - Manually via `task witness:backup:perform`
+- Manually via `task foundry:backup:perform`
 
 Backups are also scheduled by Ansible-managed systemd timers:
 
 - Authentik daily at `04:00`
 - Witness (`reporting-tool`) daily at `04:30`
+- Foundry daily at `05:00`
 
 The backup scripts also take a shared cross-service lock under
 `/opt/vps-devops/backups`, so the two scheduled jobs cannot run at the same
@@ -203,6 +227,7 @@ archive are deleted.
 - Authentik media, certs, and custom templates
 - Witness backup metadata
 - Authentik backup metadata
+- Foundry backup metadata
 - Repo-managed config and secrets, via Git + SOPS rather than Borg
 
 ### Not backed up today
@@ -225,6 +250,11 @@ Useful task entry points:
 - `task authentik:backup:restore`
 - `task authentik:backup:info`
 - `task ssh:authentik-backup`
+- `task deploy:foundry`
+- `task foundry:backup:perform`
+- `task foundry:backup:restore`
+- `task foundry:backup:info`
+- `task ssh:foundry-backup`
 
 ## Risks and Gaps
 
@@ -241,6 +271,8 @@ Current gaps worth tracking:
   a cleaner SQLite snapshot.
 - Authentik server and worker are briefly stopped during backup so the bound
   directories can be archived consistently.
+- Foundry is briefly stopped during backup so the bind-mounted `/data` tree can
+  be copied consistently.
 
 ## Recommended Next Steps
 
@@ -298,5 +330,8 @@ For current behavior, prefer these files over older prose docs:
 - `scripts/backup-reporting-tool.sh`
 - `scripts/restore-reporting-tool.sh`
 - `ansible/authentik.yml`
+- `ansible/foundry.yml`
+- `scripts/backup-foundry.sh`
+- `scripts/restore-foundry.sh`
 - `ansible/traefik.yml`
 - `ansible/base.yml`

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # dockovpn:
+  #   build: dockovpn
+  #   command: -r
+  #   cap_add:
+  #     - NET_ADMIN
+  #   ports:
+  #     - ${DOCKOVPN_TUN_PORT}:1194/udp
+  #     - ${DOCKOVPN_CONF_PORT}:8080/tcp
+  #   environment:
+  #     HOST_ADDR: ${DOCKOVPN_HOST_ADDR}
+  #     HOST_CONF_PORT: ${DOCKOVPN_CONF_PORT}
+  #     HOST_TUN_PORT: ${DOCKOVPN_TUN_PORT}
+  #   volumes:
+  #     - ./data/dockovpn:/opt/Dockovpn_data
+  #   networks:
+  #     foundry:
+  #       ipv4_address: 172.30.5.2
+  #   restart: always
+  foundry:
+    image: felddy/foundryvtt:13.351
+    hostname: foundryvtt
+    volumes:
+      - type: bind
+        source: ./data/foundry
+        target: /data
+    environment:
+#      - FOUNDRY_RELEASE_URL=${FOUNDRY_RELEASE_URL}
+      - FOUNDRY_USERNAME=${FOUNDRY_USERNAME}
+      - FOUNDRY_PASSWORD=${FOUNDRY_PASSWORD}
+      - FOUNDRY_ADMIN_KEY=${FOUNDRY_ADMIN_KEY}
+    networks:
+      foundry:
+        ipv4_address: 172.30.5.3
+    restart: always
+  nginxproxy:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+    volumes:
+      - type: bind
+        source: ./data/nginxproxy/data
+        target: /data
+      - type: bind
+        source: ./data/nginxproxy/letsencrypt
+        target: /etc/letsencrypt
+    networks:
+      foundry:
+        ipv4_address: 172.30.5.10
+networks:
+  foundry:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/16
+          ip_range: 172.30.5.0/25
+          gateway: 172.30.0.1

@@ -1,0 +1,26 @@
+services:
+  foundry:
+    image: {{ foundry_image }}
+    hostname: foundryvtt
+    env_file: .env
+    restart: unless-stopped
+    networks:
+      - proxy
+    volumes:
+      - ./data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.foundry.rule=Host(`{{ foundry_public_hostname }}`)"
+      - "traefik.http.routers.foundry.entrypoints=websecure"
+      - "traefik.http.routers.foundry.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.foundry.middlewares=foundry-authentik"
+      - "traefik.http.middlewares.foundry-authentik.forwardauth.address=http://authentik-server:9000/outpost.goauthentik.io/auth/traefik"
+      - "traefik.http.middlewares.foundry-authentik.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.foundry-authentik.forwardauth.authResponseHeaders=X-authentik-username,X-authentik-groups,X-authentik-entitlements,X-authentik-email,X-authentik-name,X-authentik-uid,X-authentik-jwt,X-authentik-meta-jwks,X-authentik-meta-outpost,X-authentik-meta-provider,X-authentik-meta-app,X-authentik-meta-version"
+      - "traefik.http.services.foundry.loadbalancer.server.port=30000"
+
+networks:
+  proxy:
+    external: true
+    name: proxy

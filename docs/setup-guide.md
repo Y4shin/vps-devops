@@ -180,7 +180,8 @@ setup, it is no longer used and can be removed.
 ```bash
 cat > /tmp/app.env.yaml <<EOF
 SESSION_SECRET: $(openssl rand -hex 32)
-ADMIN_PASSWORD: your-strong-admin-password
+ADMIN_AUTH_MODE: oidc
+ADMIN_OIDC_CLIENT_SECRET: $(openssl rand -hex 32)
 S3_ACCESS_KEY_ID: your-object-storage-access-key
 S3_SECRET_ACCESS_KEY: your-object-storage-secret-key
 borg_path: your-borg-repo-path
@@ -194,6 +195,21 @@ rm /tmp/app.env.yaml
 Witness runtime values such as `ORIGIN`, `DATABASE_URL`, and the S3 endpoint,
 bucket, and region are injected by Ansible from `secrets.sops.yaml` and the
 playbook itself. They do not need to be stored in `reporting-tool/.env.sops.yaml`.
+
+Witness admin login is now intended to use Authentik OIDC instead of a local
+`ADMIN_PASSWORD`.
+
+During deploy, this repo will create:
+
+- the Authentik group `reporting-tool-admin-access`
+- an Authentik OIDC application/provider for `https://witness.<domain>/admin/login`
+
+Access to the Authentik application is restricted to members of
+`reporting-tool-admin-access`.
+
+The Witness deploy injects `ADMIN_OIDC_ALLOWED_GROUPS=reporting-tool-admin-access`
+at runtime, so admin membership is managed centrally in Authentik instead of by
+per-user email or subject lists in `reporting-tool/.env.sops.yaml`.
 
 ### 3d. Encrypt global infrastructure secrets
 
@@ -257,12 +273,38 @@ During deploy, Ansible renders these values into a temporary
 `/opt/vps-devops/authentik/.env`, performs the Docker Compose operations, and
 removes the file again afterward.
 
-### 3f. Add the submodule
+### 3f. Optional: create outbound mail relay secrets
+
+If you want Authentik to send email through a local outbound relay on this VPS,
+create [`mail/.env.sops.yaml`](../mail/.env.sops.yaml) with at least:
+
+```yaml
+MAIL_SUBMISSION_PASSWORD: your-strong-random-password
+```
+
+Optional values:
+
+```yaml
+MAIL_DOMAIN: your-domain.example.com
+MAIL_HOSTNAME: mail.your-domain.example.com
+MAIL_SUBMISSION_ACCOUNT: authentik@your-domain.example.com
+MAIL_POSTMASTER_ADDRESS: postmaster@your-domain.example.com
+MAIL_AUTHENTIK_FROM: authentik@your-domain.example.com
+```
+
+Deploy it later with:
+
+```bash
+task deploy:mail
+task deploy:authentik
+```
+
+### 3g. Add the submodule
 
 Already done — `reporting-tool/app` is pinned to the commit at the time this repo was set up.
 To update it to a newer commit see the day-to-day operations section below.
 
-### 3g. Commit and push
+### 3h. Commit and push
 
 ```bash
 git add .sops.yaml secrets.sops.yaml authentik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
@@ -294,6 +336,10 @@ curl -I https://traefik.your-domain.example.com
 
 For `https://traefik.your-domain.example.com`, expect an Authentik-driven
 redirect/login flow rather than an HTTP basic-auth prompt.
+
+After deploy, add your Witness admins to the Authentik group
+`reporting-tool-admin-access`. That group gates the Authentik OIDC application
+used by `https://witness.<domain>/admin/login`.
 
 ---
 

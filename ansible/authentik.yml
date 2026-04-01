@@ -6,6 +6,14 @@
     repo_root: "{{ playbook_dir }}/.."
     authentik_version: "2026.2.1"
     borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    deploy_user: "deploy"
+    deploy_group: "deploy"
+    reporting_tool_admin_oidc_application_slug: "reporting-tool-admin"
+    reporting_tool_admin_oidc_client_id: "reporting-tool-admin"
+    reporting_tool_admin_access_group: "reporting-tool-admin-access"
+    foundry_access_group: "foundry-access"
+    foundry_proxy_provider_name: "foundry"
+    foundry_application_slug: "foundry"
 
   tasks:
     - name: Check whether Authentik secrets file exists
@@ -24,10 +32,67 @@
           before deploying Authentik.
       when: not authentik_secrets_file.stat.exists
 
+    - name: Check whether reporting-tool secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/reporting-tool/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: reporting_tool_secrets_file
+
+    - name: Check whether Foundry secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/foundry/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: foundry_secrets_file
+
+    - name: Check whether mail secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/mail/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: mail_secrets_file
+
+    - name: Require reporting-tool secrets file for Witness admin OIDC
+      ansible.builtin.fail:
+        msg: >-
+          Create {{ repo_root }}/reporting-tool/.env.sops.yaml with
+          ADMIN_OIDC_CLIENT_SECRET before deploying Authentik so the
+          reporting-tool admin OIDC application can be rendered.
+      when: not reporting_tool_secrets_file.stat.exists
+
     - name: Set secrets variable
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
         authentik_secrets: "{{ lookup('community.sops.sops', repo_root + '/authentik/.env.sops.yaml') | from_yaml }}"
+        reporting_tool_secrets: "{{ lookup('community.sops.sops', repo_root + '/reporting-tool/.env.sops.yaml') | from_yaml }}"
+        foundry_secrets: >-
+          {{
+            (
+              lookup('community.sops.sops', repo_root + '/foundry/.env.sops.yaml') | from_yaml
+            )
+            if foundry_secrets_file.stat.exists
+            else {}
+          }}
+        mail_secrets: >-
+          {{
+            (
+              lookup('community.sops.sops', repo_root + '/mail/.env.sops.yaml') | from_yaml
+            )
+            if mail_secrets_file.stat.exists
+            else {}
+          }}
+      no_log: true
+
+    - name: Set Foundry public hostname fact for Authentik resources
+      ansible.builtin.set_fact:
+        foundry_public_hostname: "{{ foundry_secrets.FOUNDRY_PUBLIC_HOSTNAME | default('foundry.' ~ secrets.domain, true) }}"
+      no_log: true
+
+    - name: Set mail relay facts for Authentik email integration
+      ansible.builtin.set_fact:
+        mail_domain: "{{ mail_secrets.MAIL_DOMAIN | default(secrets.domain, true) }}"
+        mail_authentik_from: "{{ mail_secrets.MAIL_AUTHENTIK_FROM | default('authentik@' ~ (mail_secrets.MAIL_DOMAIN | default(secrets.domain, true)), true) }}"
       no_log: true
 
     - name: Require Authentik secret values
@@ -46,6 +111,16 @@
         fail_msg: >-
           authentik/.env.sops.yaml must define AUTHENTIK_BOOTSTRAP_PASSWORD,
           PG_PASS, AUTHENTIK_SECRET_KEY, borg_path, and borg_passphrase.
+      no_log: true
+
+    - name: Require reporting-tool OIDC client secret for Authentik blueprint rendering
+      ansible.builtin.assert:
+        that:
+          - reporting_tool_secrets.ADMIN_OIDC_CLIENT_SECRET is defined
+          - (reporting_tool_secrets.ADMIN_OIDC_CLIENT_SECRET | trim) != ""
+        fail_msg: >-
+          reporting-tool/.env.sops.yaml must define ADMIN_OIDC_CLIENT_SECRET
+          so Authentik can render the Witness admin OIDC application.
       no_log: true
 
     - name: Discover Authentik blueprint files in the repo
@@ -100,6 +175,24 @@
       ansible.builtin.copy:
         src: "{{ repo_root }}/traefik/traefik-logo.png"
         dest: /opt/vps-devops/authentik/data/media/custom/traefik-logo.png
+        mode: "0644"
+
+    - name: Copy Witness branding icon
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/reporting-tool/app/static/icons/icon.svg"
+        dest: /opt/vps-devops/authentik/data/media/custom/witness-icon.svg
+        mode: "0644"
+
+    - name: Copy Witness branding favicon
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/reporting-tool/app/static/icons/icon.svg"
+        dest: /opt/vps-devops/authentik/data/media/custom/witness-favicon.svg
+        mode: "0644"
+
+    - name: Copy Foundry branding logo
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/foundry/foundry-logo.png"
+        dest: /opt/vps-devops/authentik/data/media/custom/foundry-logo.png
         mode: "0644"
 
     - name: Create per-app Authentik blueprint directories
@@ -312,11 +405,32 @@
         - certs
         - custom-templates
 
+    - name: Create shared backups directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/backups
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0770"
+      become: true
+
+    - name: Ensure shared backup lock file is writable by deploy
+      ansible.builtin.file:
+        path: /opt/vps-devops/backups/.backup-job.lock
+        state: touch
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0660"
+      become: true
+
     - name: Create Authentik restore staging directory
       ansible.builtin.file:
         path: /opt/vps-devops/backups/authentik-staging
         state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
         mode: "0700"
+      become: true
 
     - name: Set Authentik Borg repo URL
       ansible.builtin.set_fact:
@@ -469,6 +583,11 @@
         ipam_config:
           - subnet: "{{ secrets.proxy_subnet }}"
 
+    - name: Ensure mail network exists when mail relay is configured
+      community.docker.docker_network:
+        name: mail
+      when: mail_secrets_file.stat.exists
+
     - name: Render Authentik compose file
       ansible.builtin.template:
         src: "{{ repo_root }}/authentik/docker-compose.yml.j2"
@@ -489,6 +608,16 @@
           AUTHENTIK_TAG={{ authentik_version }}
           AUTHENTIK_UID={{ authentik_deploy_uid }}
           AUTHENTIK_GID={{ authentik_deploy_gid }}
+          {% if mail_secrets_file.stat.exists %}
+          AUTHENTIK_EMAIL__HOST=mailserver
+          AUTHENTIK_EMAIL__PORT=25
+          AUTHENTIK_EMAIL__USERNAME=
+          AUTHENTIK_EMAIL__PASSWORD=
+          AUTHENTIK_EMAIL__USE_TLS=false
+          AUTHENTIK_EMAIL__USE_SSL=false
+          AUTHENTIK_EMAIL__TIMEOUT=10
+          AUTHENTIK_EMAIL__FROM={{ mail_authentik_from }}
+          {% endif %}
       no_log: true
 
     - name: Deploy Authentik with temporary .env
@@ -603,6 +732,72 @@
           retries: 30
           delay: 5
           until: authentik_traefik_dashboard_group_seed.rc == 0
+
+        - name: Ensure embedded Authentik outpost serves the Foundry proxy provider
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.outposts.models import Outpost
+                from authentik.providers.proxy.models import ProxyProvider
+                outpost = Outpost.objects.filter(name="authentik Embedded Outpost").first()
+                provider = ProxyProvider.objects.filter(name={{ foundry_proxy_provider_name | to_json }}).first()
+                if outpost is None or provider is None:
+                    print("ok")
+                elif outpost.providers.filter(pk=provider.pk).exists():
+                    print("ok")
+                else:
+                    outpost.providers.add(provider)
+                    print("changed")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_foundry_outpost_provider
+          changed_when: "'changed' in authentik_foundry_outpost_provider.stdout"
+          retries: 30
+          delay: 5
+          until: authentik_foundry_outpost_provider.rc == 0
+
+        - name: Seed Foundry access group from existing Authentik superusers when empty
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.core.models import Group, User
+                group = Group.objects.filter(name={{ foundry_access_group | to_json }}).first()
+                if group is None:
+                    print("ok")
+                elif group.users.exists():
+                    print("ok")
+                else:
+                    superusers = list(
+                        User.objects.filter(groups__is_superuser=True).distinct().order_by("pk")
+                    )
+                    if superusers:
+                        group.users.add(*superusers)
+                        print("changed")
+                    else:
+                        print("ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_foundry_access_group_seed
+          changed_when: "'changed' in authentik_foundry_access_group_seed.stdout"
+          retries: 30
+          delay: 5
+          until: authentik_foundry_access_group_seed.rc == 0
 
         - name: Set flow background on Authentik and Traefik brands
           ansible.builtin.command:

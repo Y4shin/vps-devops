@@ -60,6 +60,20 @@ tasks:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/witness.yml
 
+  deploy:foundry:
+    desc: Deploy Foundry VTT only
+    deps: [decrypt]
+    cmds:
+      - defer: rm -f ansible/inventory.yml
+      - bash ./scripts/local/run-playbook.sh ansible/foundry.yml
+
+  deploy:mail:
+    desc: Deploy outbound mail relay only
+    deps: [decrypt]
+    cmds:
+      - defer: rm -f ansible/inventory.yml
+      - bash ./scripts/local/run-playbook.sh ansible/mail.yml
+
   all:
     desc: "Fresh-server flow: bootstrap, base config, then service deploy"
     cmds:
@@ -156,6 +170,21 @@ tasks:
     cmds:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/scripts /opt/vps-devops/scripts/authentik-borg-env
 
+  ssh:foundry:
+    desc: SSH into the server and cd to the Foundry compose directory
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/foundry
+
+  ssh:foundry-backup:
+    desc: SSH into the server with Foundry Borg env loaded
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/scripts /opt/vps-devops/scripts/foundry-borg-env
+
+  ssh:mail:
+    desc: SSH into the server and cd to the mail compose directory
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/mail
+
   ssh:witness:
     desc: SSH into the server and cd to the Witness compose directory
     cmds:
@@ -202,6 +231,43 @@ tasks:
     interactive: true
     cmds:
       - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-authentik.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
+
+  foundry:backup:info:
+    desc: Show Borg repo info and archive list for the Foundry backup repo
+    cmds:
+      - bash ./scripts/local/foundry-backup-info.sh
+
+  foundry:backup:perform:
+    desc: SSH to the VPS and run the Foundry backup script
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./backup-foundry.sh"
+
+  foundry:backup:restore:
+    desc: "SSH to the VPS and run the Foundry restore script. Optionally pass ARCHIVE=<borg-archive-name>"
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-foundry.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
+
+  mail:dkim:info:
+    desc: Show the generated DKIM DNS record(s) for the outbound mail relay
+    cmds:
+      - bash ./scripts/local/mail-dkim-info.sh
+
+  foundry:start:
+    desc: Start the existing Foundry container without recreating it
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker start foundry-foundry-1
+
+  foundry:stop:
+    desc: Stop the existing Foundry container without removing it
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker stop foundry-foundry-1
+
+  foundry:migrate:data:
+    desc: "Stage Foundry data from SOURCE and sync it to the VPS. SOURCE may be a local path or user@host:/path. Optional vars: DELETE=1 SOURCE_SSH_KEY=~/.ssh/key SOURCE_SSH_PORT=22"
+    interactive: true
+    cmds:
+      - SOURCE="{{.SOURCE}}" DELETE="{{.DELETE}}" SOURCE_SSH_KEY="{{.SOURCE_SSH_KEY}}" SOURCE_SSH_PORT="{{.SOURCE_SSH_PORT}}" bash ./scripts/local/migrate-foundry-data.sh
 
   witness:up:
     desc: Start or recreate the Witness stack with a temporary env file

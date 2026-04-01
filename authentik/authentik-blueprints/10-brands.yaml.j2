@@ -10,6 +10,12 @@ entries:
       domain: authentik.{{ secrets.domain }}
     attrs:
       branding_title: Authentik
+      attributes:
+        settings:
+          layout:
+            type: 3-column
+          enabledFeatures:
+            applicationEdit: false
 
   - model: authentik_brands.brand
     state: present
@@ -18,3 +24,13 @@ entries:
     attrs:
       branding_title: Traefik Dashboard
       branding_logo: /media/custom/traefik-logo.png
+      branding_favicon: /media/custom/traefik-logo.png
+
+  - model: authentik_brands.brand
+    state: present
+    identifiers:
+      domain: {{ foundry_public_hostname }}
+    attrs:
+      branding_title: Foundry VTT
+      branding_logo: /media/custom/foundry-logo.png
+      branding_favicon: /media/custom/foundry-logo.png
