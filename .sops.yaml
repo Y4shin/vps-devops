@@ -15,3 +15,9 @@ creation_rules:
   - path_regex: borg/ssh_key\.sops$
     age: *portable_age
     pgp: *yubikey_gpg
+  - path_regex: mail/\.env\.sops\.yaml$
+    age: *portable_age
+    pgp: *yubikey_gpg
+  - path_regex: foundry/\.env\.sops\.yaml$
+    age: *portable_age
+    pgp: *yubikey_gpg
