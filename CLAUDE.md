@@ -82,33 +82,11 @@ task ssh:scripts
 
 Never commit decrypted material.
 
-## Submodules
-
-Use the helper tasks instead of manually juggling deploy keys.
-
-After pulling changes in the superproject:
-
-```bash
-task submodule:checkout
-```
-
-If you intentionally want to bump submodules to newer upstream commits:
-
-```bash
-task submodule:update
-```
-
-The difference matters:
-
-- `submodule:checkout` matches local worktrees to the commits already recorded in the repo
-- `submodule:update` advances submodules and stages new gitlink changes
-
 ## Important File Paths
 
 - `Taskfile.yml`
 - `docs/setup-guide.md`
 - `docs/backup-architecture.md`
-- `scripts/local/submodule.sh`
 - `scripts/backup-authentik.sh`
 - `scripts/restore-authentik.sh`
 - `scripts/backup-reporting-tool.sh`
