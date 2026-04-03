@@ -178,26 +178,8 @@
       no_log: true
 
     # -------------------------------------------------------------------------
-    # Witness — only deploy if commit has changed
+    # Witness — only deploy if image digest has changed
     # -------------------------------------------------------------------------
-    - name: Get current local submodule commit
-      ansible.builtin.command:
-        cmd: git rev-parse HEAD
-        chdir: "{{ repo_root }}/reporting-tool/app"
-      register: current_commit
-      delegate_to: localhost
-      become: false
-      changed_when: false
-
-    - name: Get last deployed commit from server
-      ansible.builtin.slurp:
-        src: /opt/vps-devops/reporting-tool/.last-deployed-commit
-      register: last_commit_file
-      failed_when: false
-
-    - name: Set last deployed commit fact
-      ansible.builtin.set_fact:
-        last_commit: "{{ last_commit_file.content | default('') | b64decode | trim }}"
 
     - name: Create witness directory
       ansible.builtin.file:
@@ -255,20 +237,30 @@
         mode: "0644"
       register: witness_compose_result
 
-    - name: Set witness source change fact
-      ansible.builtin.set_fact:
-        witness_source_changed: "{{ current_commit.stdout != last_commit }}"
+    - name: Pull latest witness image
+      ansible.builtin.command:
+        cmd: docker pull ghcr.io/y4shin/witness:latest --quiet
+      changed_when: false
 
-    - name: Sync app source to server
-      ansible.posix.synchronize:
-        src: "{{ repo_root }}/reporting-tool/app/"
-        dest: /opt/vps-devops/reporting-tool/app/
-        delete: true
-        rsync_opts:
-          - "--exclude=node_modules"
-          - "--exclude=.git"
-      become: false
-      when: witness_source_changed
+    - name: Get current witness image digest
+      ansible.builtin.command:
+        cmd: "docker inspect ghcr.io/y4shin/witness:latest --format '{% raw %}{{.Id}}{% endraw %}'"
+      register: witness_current_digest
+      changed_when: false
+
+    - name: Read last deployed digest from server
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/reporting-tool/.last-deployed-digest
+      register: last_digest_file
+      failed_when: false
+
+    - name: Set last deployed digest fact
+      ansible.builtin.set_fact:
+        last_digest: "{{ last_digest_file.content | default('') | b64decode | trim }}"
+
+    - name: Set witness image change fact
+      ansible.builtin.set_fact:
+        witness_image_changed: "{{ last_digest != witness_current_digest.stdout }}"
 
     - name: Copy reporting-tool backup script
       ansible.builtin.copy:
@@ -346,7 +338,7 @@
     - name: Backup reporting-tool before deploy
       ansible.builtin.command:
         cmd: bash /opt/vps-devops/scripts/backup-reporting-tool.sh
-      when: witness_source_changed and last_commit != ""
+      when: witness_image_changed and last_digest != ""
 
     - name: Build witness env content
       ansible.builtin.set_fact:
@@ -408,25 +400,25 @@
           ansible.builtin.set_fact:
             witness_needs_recreate: >-
               {{
-                witness_source_changed
+                witness_image_changed
                 or witness_compose_result.changed
                 or witness_env_changed
               }}
 
-        - name: Build and recreate witness when source changed
+        - name: Recreate witness when image changed
           community.docker.docker_compose_v2:
             project_src: /opt/vps-devops/reporting-tool
-            build: always
+            pull: never
             state: present
             recreate: always
-          when: witness_source_changed
+          when: witness_image_changed
 
         - name: Recreate witness when config changed
           community.docker.docker_compose_v2:
             project_src: /opt/vps-devops/reporting-tool
             state: present
             recreate: always
-          when: not witness_source_changed and witness_needs_recreate
+          when: not witness_image_changed and witness_needs_recreate
 
         - name: Ensure witness is running without forced recreate
           community.docker.docker_compose_v2:
@@ -434,12 +426,12 @@
             state: present
           when: not witness_needs_recreate
 
-        - name: Record deployed commit
+        - name: Record deployed digest
           ansible.builtin.copy:
-            dest: /opt/vps-devops/reporting-tool/.last-deployed-commit
-            content: "{{ current_commit.stdout }}"
+            dest: /opt/vps-devops/reporting-tool/.last-deployed-digest
+            content: "{{ witness_current_digest.stdout }}"
             mode: "0644"
-          when: witness_source_changed
+          when: witness_image_changed
       always:
         - name: Remove app .env
           ansible.builtin.file:

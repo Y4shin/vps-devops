@@ -6,9 +6,6 @@ creation_rules:
   - path_regex: .+\.sops\.yaml$
     age: *portable_age
     pgp: *yubikey_gpg
-  - path_regex: deploy_key\.sops$
-    age: *portable_age
-    pgp: *yubikey_gpg
   - path_regex: deploy_ssh_private_key\.sops$
     age: *portable_age
     pgp: *yubikey_gpg

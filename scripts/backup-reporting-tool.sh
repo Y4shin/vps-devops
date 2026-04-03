@@ -153,9 +153,9 @@ fi
 
 backup_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 hostname_value="$(hostname -f 2>/dev/null || hostname)"
-deployed_commit="unknown"
-if [[ -f "${REPORTING_TOOL_COMPOSE_DIR}/.last-deployed-commit" ]]; then
-  deployed_commit="$(tr -d '\n' < "${REPORTING_TOOL_COMPOSE_DIR}/.last-deployed-commit")"
+deployed_digest="unknown"
+if [[ -f "${REPORTING_TOOL_COMPOSE_DIR}/.last-deployed-digest" ]]; then
+  deployed_digest="$(tr -d '\n' < "${REPORTING_TOOL_COMPOSE_DIR}/.last-deployed-digest")"
 fi
 
 log_step "Writing backup manifest"
@@ -166,7 +166,7 @@ jq -n \
   --arg endpoint "$S3_ENDPOINT" \
   --arg db_volume "$REPORTING_TOOL_DB_VOLUME" \
   --arg container "$REPORTING_TOOL_CONTAINER" \
-  --arg deployed_commit "$deployed_commit" \
+  --arg deployed_digest "$deployed_digest" \
   '{
     backup_timestamp: $backup_timestamp,
     hostname: $hostname,
@@ -175,7 +175,7 @@ jq -n \
     s3_endpoint: $endpoint,
     db_volume: $db_volume,
     container: $container,
-    deployed_commit: $deployed_commit
+    deployed_digest: $deployed_digest
   }' > "${REPORTING_TOOL_STAGING_DIR}/manifest.json"
 
 if [[ $app_restart_required -eq 1 ]]; then

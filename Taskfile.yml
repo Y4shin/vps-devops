@@ -289,6 +289,21 @@ tasks:
     cmds:
       - bash ./scripts/local/ssh-run.sh docker stop reporting-tool-app-1
 
+  witness:check-update:
+    desc: Check whether a new witness image is available on ghcr.io
+    cmds:
+      - |
+        bash ./scripts/local/ssh-run.sh '
+          docker pull ghcr.io/y4shin/witness:latest --quiet
+          new=$(docker inspect ghcr.io/y4shin/witness:latest --format "{{.Id}}")
+          stored=$(cat /opt/vps-devops/reporting-tool/.last-deployed-digest 2>/dev/null || echo "")
+          if [ "$new" = "$stored" ]; then
+            echo "witness is up to date."
+          else
+            echo "Update available! Run: task deploy:witness"
+          fi
+        '
+
   secrets:edit:
     desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
     cmds:

@@ -1,6 +1,6 @@
 services:
   app:
-    build: ./app
+    image: ghcr.io/y4shin/witness:latest
     env_file: .env
     restart: unless-stopped
     dns:
