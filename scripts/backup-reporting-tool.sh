@@ -56,15 +56,18 @@ require_env S3_REGION
 require_env S3_ACCESS_KEY_ID
 require_env S3_SECRET_ACCESS_KEY
 
-require_command aws
+require_command rclone
 require_command borg
 require_command docker
 require_command flock
 require_command jq
 
-export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
-export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
-export AWS_DEFAULT_REGION="$S3_REGION"
+export RCLONE_CONFIG_BACKUP_TYPE=s3
+export RCLONE_CONFIG_BACKUP_PROVIDER=Other
+export RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+export RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+export RCLONE_CONFIG_BACKUP_ENDPOINT="$S3_ENDPOINT"
+export RCLONE_CONFIG_BACKUP_REGION="$S3_REGION"
 
 LOCK_FILE="${REPORTING_TOOL_STAGING_DIR}.lock"
 GLOBAL_LOCK_FILE="/opt/vps-devops/backups/.backup-job.lock"
@@ -82,6 +85,7 @@ exec 8>"$GLOBAL_LOCK_FILE"
 flock 8
 
 app_restart_required=0
+rclone_pid=0
 
 cleanup() {
   local rc=$?
@@ -89,6 +93,14 @@ cleanup() {
   if [[ $app_restart_required -eq 1 ]]; then
     log_info "Starting ${REPORTING_TOOL_CONTAINER} again after interrupted backup..."
     docker start "$REPORTING_TOOL_CONTAINER" >/dev/null || true
+  fi
+
+  if [[ $rclone_pid -ne 0 ]]; then
+    log_info "Unmounting S3 bucket..."
+    kill "$rclone_pid" 2>/dev/null || true
+    fusermount3 -u "${REPORTING_TOOL_STAGING_DIR}/bucket" 2>/dev/null \
+      || fusermount -u "${REPORTING_TOOL_STAGING_DIR}/bucket" 2>/dev/null \
+      || true
   fi
 
   log_info "Cleaning staging directory ${REPORTING_TOOL_STAGING_DIR}"
@@ -124,12 +136,20 @@ docker run --rm \
   cat /data/app.db > "${REPORTING_TOOL_STAGING_DIR}/db/app.db"
 chmod 600 "${REPORTING_TOOL_STAGING_DIR}/db/app.db"
 
-log_step "Mirroring bucket ${S3_BUCKET} into local staging"
-aws s3 sync \
-  "s3://${S3_BUCKET}" \
-  "${REPORTING_TOOL_STAGING_DIR}/bucket" \
-  --endpoint-url "$S3_ENDPOINT" \
-  --only-show-errors
+log_step "Mounting S3 bucket ${S3_BUCKET} via rclone"
+rclone mount "backup:${S3_BUCKET}" "${REPORTING_TOOL_STAGING_DIR}/bucket" \
+  --vfs-cache-mode off \
+  --read-only \
+  &
+rclone_pid=$!
+for i in $(seq 1 15); do
+  mountpoint -q "${REPORTING_TOOL_STAGING_DIR}/bucket" && break
+  sleep 1
+done
+if ! mountpoint -q "${REPORTING_TOOL_STAGING_DIR}/bucket"; then
+  echo "rclone mount did not become ready in time." >&2
+  exit 1
+fi
 
 backup_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 hostname_value="$(hostname -f 2>/dev/null || hostname)"
@@ -150,7 +170,7 @@ jq -n \
   '{
     backup_timestamp: $backup_timestamp,
     hostname: $hostname,
-    backup_mode: "full-bucket-with-app-stopped",
+    backup_mode: "rclone-mount-with-app-stopped",
     s3_bucket: $bucket,
     s3_endpoint: $endpoint,
     db_volume: $db_volume,

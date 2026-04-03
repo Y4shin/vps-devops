@@ -13,7 +13,6 @@
     deploy_uid: 999
     deploy_gid: 999
     sops_version: "3.9.4"
-    awscli_arch: "{{ 'x86_64' if ansible_facts['architecture'] == 'x86_64' else 'aarch64' }}"
 
   tasks:
     - name: Enable Ubuntu universe repository
@@ -58,44 +57,9 @@
           - jq
           - unzip
           - whiptail
+          - fuse3
+          - rclone
         state: present
-
-    - name: Check whether AWS CLI is already installed
-      ansible.builtin.command: aws --version
-      register: awscli_installed
-      failed_when: false
-      changed_when: false
-
-    - name: Download AWS CLI bundle
-      ansible.builtin.get_url:
-        url: "https://awscli.amazonaws.com/awscli-exe-linux-{{ awscli_arch }}.zip"
-        dest: /tmp/awscliv2.zip
-        mode: "0644"
-      when: awscli_installed.rc != 0
-
-    - name: Extract AWS CLI bundle
-      ansible.builtin.unarchive:
-        src: /tmp/awscliv2.zip
-        dest: /tmp
-        remote_src: true
-      when: awscli_installed.rc != 0
-
-    - name: Install AWS CLI
-      ansible.builtin.command:
-        cmd: /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
-      when: awscli_installed.rc != 0
-
-    - name: Remove extracted AWS CLI bundle
-      ansible.builtin.file:
-        path: /tmp/aws
-        state: absent
-      when: awscli_installed.rc != 0
-
-    - name: Remove downloaded AWS CLI archive
-      ansible.builtin.file:
-        path: /tmp/awscliv2.zip
-        state: absent
-      when: awscli_installed.rc != 0
 
     - name: Configure unattended-upgrades
       ansible.builtin.copy:
