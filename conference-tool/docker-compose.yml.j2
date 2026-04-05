@@ -1,0 +1,27 @@
+services:
+  app:
+    image: ghcr.io/y4shin/open-caucus:latest
+    env_file: .env
+    restart: unless-stopped
+    dns:
+      - {{ secrets.proxy_dns_ip }}
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - db_data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.conference-tool.rule=Host(`conference.{{ secrets.domain }}`)"
+      - "traefik.http.routers.conference-tool.entrypoints=websecure"
+      - "traefik.http.routers.conference-tool.tls.certresolver=letsencrypt"
+      - "traefik.http.services.conference-tool.loadbalancer.server.port=8080"
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal: {}
+
+volumes:
+  db_data:

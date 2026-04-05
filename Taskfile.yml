@@ -48,6 +48,12 @@ tasks:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
 
+  authentik:logs:
+    desc: Tail Authentik server container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f authentik-server-1
+
   authentik:reset:
     desc: Destructively reset Authentik state on the VPS after interactive confirmation
     cmds:
@@ -66,6 +72,13 @@ tasks:
     cmds:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/foundry.yml
+
+  deploy:conference-tool:
+    desc: Deploy Conference Tool only
+    deps: [decrypt]
+    cmds:
+      - defer: rm -f ansible/inventory.yml
+      - bash ./scripts/local/run-playbook.sh ansible/conference-tool.yml
 
   deploy:mail:
     desc: Deploy outbound mail relay only
@@ -161,9 +174,10 @@ tasks:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/traefik
 
   ssh:authentik:
-    desc: SSH into the server and cd to the Authentik directory
+    desc: SSH into the Authentik directory with a temporary .env
+    interactive: true
     cmds:
-      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/authentik
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/authentik "" ./scripts/local/env-builders/authentik.sh
 
   ssh:authentik-backup:
     desc: SSH into the server with Authentik Borg env loaded
@@ -171,24 +185,33 @@ tasks:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/scripts /opt/vps-devops/scripts/authentik-borg-env
 
   ssh:foundry:
-    desc: SSH into the server and cd to the Foundry compose directory
+    desc: SSH into the Foundry directory with a temporary .env
+    interactive: true
     cmds:
-      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/foundry
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/foundry "" ./scripts/local/env-builders/foundry.sh
 
   ssh:foundry-backup:
     desc: SSH into the server with Foundry Borg env loaded
     cmds:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/scripts /opt/vps-devops/scripts/foundry-borg-env
 
-  ssh:mail:
-    desc: SSH into the server and cd to the mail compose directory
+  ssh:conference-tool:
+    desc: SSH into the Conference Tool directory with a temporary .env
+    interactive: true
     cmds:
-      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/mail
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/conference-tool "" ./scripts/local/env-builders/conference-tool.sh
+
+  ssh:mail:
+    desc: SSH into the mail directory with a temporary .env
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/mail "" ./scripts/local/env-builders/mail.sh
 
   ssh:witness:
-    desc: SSH into the server and cd to the Witness compose directory
+    desc: SSH into the Witness directory with a temporary .env
+    interactive: true
     cmds:
-      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/reporting-tool
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/reporting-tool "" ./scripts/local/env-builders/witness.sh
 
   ssh:scripts:
     desc: SSH into the server and cd to the scripts directory
@@ -253,6 +276,12 @@ tasks:
     cmds:
       - bash ./scripts/local/mail-dkim-info.sh
 
+  foundry:logs:
+    desc: Tail Foundry container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f foundry-foundry-1
+
   foundry:start:
     desc: Start the existing Foundry container without recreating it
     cmds:
@@ -269,6 +298,53 @@ tasks:
     cmds:
       - SOURCE="{{.SOURCE}}" DELETE="{{.DELETE}}" SOURCE_SSH_KEY="{{.SOURCE_SSH_KEY}}" SOURCE_SSH_PORT="{{.SOURCE_SSH_PORT}}" bash ./scripts/local/migrate-foundry-data.sh
 
+  conference-tool:backup:info:
+    desc: Show Borg repo info and archive list for the conference-tool backup repo
+    cmds:
+      - bash ./scripts/local/conference-tool-backup-info.sh
+
+  conference-tool:backup:perform:
+    desc: SSH to the VPS and run the conference-tool backup script
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./backup-conference-tool.sh"
+
+  conference-tool:backup:restore:
+    desc: "SSH to the VPS and run the conference-tool restore script. Optionally pass ARCHIVE=<borg-archive-name>"
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-conference-tool.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
+
+  conference-tool:logs:
+    desc: Tail Conference Tool container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f conference-tool-app-1
+
+  conference-tool:start:
+    desc: Start the existing Conference Tool container without recreating it
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker start conference-tool-app-1
+
+  conference-tool:stop:
+    desc: Stop the existing Conference Tool container without removing it
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker stop conference-tool-app-1
+
+  conference-tool:check-update:
+    desc: Check whether a new conference-tool image is available on ghcr.io
+    cmds:
+      - |
+        bash ./scripts/local/ssh-run.sh '
+          docker pull ghcr.io/y4shin/open-caucus:latest --quiet
+          new=$(docker inspect ghcr.io/y4shin/open-caucus:latest --format "{{.Id}}")
+          stored=$(cat /opt/vps-devops/conference-tool/.last-deployed-digest 2>/dev/null || echo "")
+          if [ "$new" = "$stored" ]; then
+            echo "conference-tool is up to date."
+          else
+            echo "Update available! Run: task deploy:conference-tool"
+          fi
+        '
+
   witness:up:
     desc: Start or recreate the Witness stack with a temporary env file
     cmds:
@@ -278,6 +354,12 @@ tasks:
     desc: Tear down the Witness stack with a temporary env file
     cmds:
       - bash ./scripts/local/witness-compose.sh down
+
+  witness:logs:
+    desc: Tail Witness container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f reporting-tool-app-1
 
   witness:start:
     desc: Start the existing Witness container without recreating it

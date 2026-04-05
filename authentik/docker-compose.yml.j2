@@ -46,9 +46,9 @@ services:
       proxy:
         aliases:
           - authentik-server
-      {% if mail_secrets_file.stat.exists %}
+{% if mail_secrets_file.stat.exists %}
       mail: {}
-      {% endif %}
+{% endif %}
       internal: {}
     labels:
       - "traefik.enable=true"
@@ -94,18 +94,18 @@ services:
       - ./data/certs:/certs
       - ./data/custom-templates:/templates
     networks:
-      {% if mail_secrets_file.stat.exists %}
+{% if mail_secrets_file.stat.exists %}
       - mail
-      {% endif %}
+{% endif %}
       - internal
 
 networks:
   proxy:
     external: true
     name: proxy
-  {% if mail_secrets_file.stat.exists %}
+{% if mail_secrets_file.stat.exists %}
   mail:
     external: true
     name: mail
-  {% endif %}
+{% endif %}
   internal: {}

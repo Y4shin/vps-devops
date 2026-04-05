@@ -190,8 +190,15 @@ archive_name="${archive_name//:/-}"
 log_step "Creating Borg archive ${archive_name}"
 (
   cd "$REPORTING_TOOL_STAGING_DIR"
-  borg create --compression lz4 "${BORG_REPO}::${archive_name}" .
+  borg create --compression lz4 --noxattrs "${BORG_REPO}::${archive_name}" .
 )
+
+log_info "Unmounting S3 bucket..."
+kill "$rclone_pid" 2>/dev/null || true
+fusermount3 -u "${REPORTING_TOOL_STAGING_DIR}/bucket" 2>/dev/null \
+  || fusermount -u "${REPORTING_TOOL_STAGING_DIR}/bucket" 2>/dev/null \
+  || true
+rclone_pid=0
 
 log_step "Pruning Borg archives"
 borg prune \
