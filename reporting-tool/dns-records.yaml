@@ -1,0 +1,10 @@
+records:
+  - name: witness
+    type: A
+    value: "{{ vps_ipv4 }}"
+    ttl: 3600
+
+  - name: witness
+    type: AAAA
+    value: "{{ vps_ipv6 }}"
+    ttl: 3600
