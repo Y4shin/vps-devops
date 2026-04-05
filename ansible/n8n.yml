@@ -1,0 +1,221 @@
+---
+- name: Deploy n8n
+  hosts: vps
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    deploy_user: "deploy"
+    deploy_group: "deploy"
+    n8n_workflow_name: "Conference Tool — Authentik Group Sync"
+
+  tasks:
+    - name: Check whether n8n secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/n8n/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: n8n_secrets_file
+
+    - name: Require n8n secrets file
+      ansible.builtin.fail:
+        msg: >-
+          Create {{ repo_root }}/n8n/.env.sops.yaml with
+          N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL, N8N_OWNER_PASSWORD,
+          AUTHENTIK_API_TOKEN, and WEBHOOK_SECRET before deploying n8n.
+      when: not n8n_secrets_file.stat.exists
+
+    - name: Set secrets variables
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
+        n8n_secrets: "{{ lookup('community.sops.sops', repo_root + '/n8n/.env.sops.yaml') | from_yaml }}"
+      no_log: true
+
+    - name: Validate n8n secrets
+      ansible.builtin.assert:
+        that:
+          - n8n_secrets.N8N_ENCRYPTION_KEY is defined
+          - (n8n_secrets.N8N_ENCRYPTION_KEY | trim) != ""
+          - n8n_secrets.N8N_OWNER_EMAIL is defined
+          - (n8n_secrets.N8N_OWNER_EMAIL | trim) != ""
+          - n8n_secrets.N8N_OWNER_PASSWORD is defined
+          - (n8n_secrets.N8N_OWNER_PASSWORD | trim) != ""
+          - n8n_secrets.AUTHENTIK_API_TOKEN is defined
+          - (n8n_secrets.AUTHENTIK_API_TOKEN | trim) != ""
+          - n8n_secrets.WEBHOOK_SECRET is defined
+          - (n8n_secrets.WEBHOOK_SECRET | trim) != ""
+        fail_msg: >-
+          n8n/.env.sops.yaml must define N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL,
+          N8N_OWNER_PASSWORD, AUTHENTIK_API_TOKEN, and WEBHOOK_SECRET.
+      no_log: true
+
+    - name: Create n8n directory
+      ansible.builtin.file:
+        path: /opt/vps-devops/n8n
+        state: directory
+        mode: "0755"
+
+    - name: Ensure proxy network exists
+      community.docker.docker_network:
+        name: proxy
+        ipam_config:
+          - subnet: "{{ secrets.proxy_subnet }}"
+
+    - name: Render n8n compose file
+      ansible.builtin.template:
+        src: "{{ repo_root }}/n8n/docker-compose.yml.j2"
+        dest: /opt/vps-devops/n8n/docker-compose.yml
+        mode: "0644"
+
+    - name: Build n8n env content
+      ansible.builtin.set_fact:
+        n8n_env_content: |
+          N8N_HOST=n8n.{{ secrets.domain }}
+          N8N_PORT=5678
+          N8N_PROTOCOL=https
+          WEBHOOK_URL=https://n8n.{{ secrets.domain }}/
+          N8N_ENCRYPTION_KEY={{ n8n_secrets.N8N_ENCRYPTION_KEY }}
+      no_log: true
+
+    - name: Deploy n8n with temporary .env
+      block:
+        - name: Write n8n .env
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/n8n/.env
+            content: "{{ n8n_env_content }}"
+            mode: "0600"
+          no_log: true
+
+        - name: Deploy n8n container
+          community.docker.docker_compose_v2:
+            project_src: /opt/vps-devops/n8n
+            state: present
+            recreate: always
+
+        - name: Wait for n8n to be healthy
+          ansible.builtin.uri:
+            url: http://127.0.0.1:5678/healthz
+            method: GET
+            status_code: 200
+          register: n8n_health
+          retries: 30
+          delay: 5
+          until: n8n_health.status == 200
+
+      always:
+        - name: Remove n8n temporary .env
+          ansible.builtin.file:
+            path: /opt/vps-devops/n8n/.env
+            state: absent
+
+    # -------------------------------------------------------------------------
+    # Workflow deployment
+    # -------------------------------------------------------------------------
+
+    - name: Copy workflow JSON to server
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/n8n/workflow.json"
+        dest: /opt/vps-devops/n8n/workflow.json
+        mode: "0644"
+
+    - name: Patch workflow Config node values
+      ansible.builtin.shell:
+        cmd: |
+          python3 << 'PYEOF'
+          import json
+
+          with open('/opt/vps-devops/n8n/workflow.json') as f:
+              wf = json.load(f)
+
+          for node in wf['nodes']:
+              if node['name'] == 'Config':
+                  for a in node['parameters']['assignments']['assignments']:
+                      if a['name'] == 'authentik_base_url':
+                          a['value'] = 'https://authentik.{{ secrets.domain }}'
+                      elif a['name'] == 'authentik_token':
+                          a['value'] = '{{ n8n_secrets.AUTHENTIK_API_TOKEN }}'
+                      elif a['name'] == 'webhook_secret':
+                          a['value'] = '{{ n8n_secrets.WEBHOOK_SECRET }}'
+
+          with open('/opt/vps-devops/n8n/workflow-deploy.json', 'w') as f:
+              json.dump(wf, f)
+          PYEOF
+      no_log: true
+
+    - name: Deploy workflow via n8n API
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+
+          N8N="http://127.0.0.1:5678"
+          OWNER_EMAIL={{ n8n_secrets.N8N_OWNER_EMAIL | to_json }}
+          OWNER_PASSWORD={{ n8n_secrets.N8N_OWNER_PASSWORD | to_json }}
+          WORKFLOW_NAME={{ n8n_workflow_name | to_json }}
+          COOKIE=$(mktemp)
+          trap "rm -f $COOKIE /opt/vps-devops/n8n/workflow-deploy.json" EXIT
+
+          # Set up owner account (no-op if already done)
+          curl -sf --max-time 15 -X POST "$N8N/setup" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":$OWNER_EMAIL,\"firstName\":\"Admin\",\"lastName\":\"Admin\",\"password\":$OWNER_PASSWORD,\"mfaEnabled\":false}" \
+            -o /dev/null || true
+
+          # Login
+          HTTP=$(curl -sf --max-time 15 -X POST "$N8N/rest/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":$OWNER_EMAIL,\"password\":$OWNER_PASSWORD}" \
+            -c "$COOKIE" -o /dev/null -w "%{http_code}")
+          if [ "$HTTP" != "200" ]; then
+            echo "n8n login failed (HTTP $HTTP)" >&2
+            exit 1
+          fi
+
+          WORKFLOW_JSON=$(cat /opt/vps-devops/n8n/workflow-deploy.json)
+
+          # Check if workflow already exists
+          EXISTING=$(curl -sf --max-time 15 \
+            -b "$COOKIE" "$N8N/api/v1/workflows?limit=100" | \
+            python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for wf in data.get('data', []):
+              if wf['name'] == $WORKFLOW_NAME:
+                  print(wf['id'])
+                  break
+          ")
+
+          if [ -n "$EXISTING" ]; then
+            # Update existing workflow (PUT requires the id inside the body)
+            PATCHED=$(echo "$WORKFLOW_JSON" | python3 -c "
+          import sys, json
+          wf = json.load(sys.stdin)
+          wf['id'] = sys.argv[1]
+          print(json.dumps(wf))
+          " "$EXISTING")
+            curl -sf --max-time 15 -X PUT \
+              -H 'Content-Type: application/json' \
+              -b "$COOKIE" \
+              "$N8N/api/v1/workflows/$EXISTING" \
+              -d "$PATCHED" -o /dev/null
+            WORKFLOW_ID="$EXISTING"
+            echo "Updated workflow $WORKFLOW_ID"
+          else
+            WORKFLOW_ID=$(curl -sf --max-time 15 -X POST \
+              -H 'Content-Type: application/json' \
+              -b "$COOKIE" \
+              "$N8N/api/v1/workflows" \
+              -d "$WORKFLOW_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+            echo "Created workflow $WORKFLOW_ID"
+          fi
+
+          # Activate
+          curl -sf --max-time 15 -X POST \
+            -b "$COOKIE" \
+            "$N8N/api/v1/workflows/$WORKFLOW_ID/activate" -o /dev/null
+          echo "Activated workflow $WORKFLOW_ID"
+      no_log: true
+      register: n8n_workflow_result
+      changed_when: "'Created workflow' in n8n_workflow_result.stdout"
+
+    - name: Show workflow deployment result
+      ansible.builtin.debug:
+        msg: "{{ n8n_workflow_result.stdout_lines }}"

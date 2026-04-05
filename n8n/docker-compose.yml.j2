@@ -1,0 +1,52 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    env_file: .env
+    dns:
+      - {{ secrets.proxy_dns_ip }}
+    ports:
+      - "127.0.0.1:5678:5678"
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      start_period: 30s
+      interval: 10s
+      retries: 10
+      timeout: 5s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      # ── Webhook endpoint — no auth middleware ────────────────────────────────
+      # conference-tool POSTs here; the workflow itself checks X-Webhook-Secret.
+      - "traefik.http.routers.n8n-webhook.rule=Host(`n8n.{{ secrets.domain }}`) && PathPrefix(`/webhook/`)"
+      - "traefik.http.routers.n8n-webhook.entrypoints=websecure"
+      - "traefik.http.routers.n8n-webhook.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.n8n-webhook.service=n8n"
+      - "traefik.http.routers.n8n-webhook.priority=10"
+      # ── n8n UI + REST API — Authentik forward auth ───────────────────────────
+      - "traefik.http.routers.n8n.rule=Host(`n8n.{{ secrets.domain }}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.n8n.middlewares=n8n-authentik"
+      - "traefik.http.routers.n8n.service=n8n"
+      - "traefik.http.routers.n8n.priority=1"
+      # ── Authentik forward-auth middleware ────────────────────────────────────
+      - "traefik.http.middlewares.n8n-authentik.forwardauth.address=http://authentik-server:9000/outpost.goauthentik.io/auth/traefik"
+      - "traefik.http.middlewares.n8n-authentik.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.n8n-authentik.forwardauth.authResponseHeaders=X-authentik-username,X-authentik-groups,X-authentik-entitlements,X-authentik-email,X-authentik-name,X-authentik-uid,X-authentik-jwt,X-authentik-meta-jwks,X-authentik-meta-outpost,X-authentik-meta-provider,X-authentik-meta-app,X-authentik-meta-version"
+      # ── Backend service ──────────────────────────────────────────────────────
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal: {}
+
+volumes:
+  data:

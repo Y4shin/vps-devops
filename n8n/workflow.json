@@ -1,0 +1,549 @@
+{
+  "name": "Conference Tool — Authentik Group Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Setup\n\nEdit the **Config** node before using this workflow:\n- `authentik_base_url` — `http://authentik-server:9000` is correct for the bundled test compose stack\n- `authentik_token` — create one in Authentik Admin → Directory → Tokens & App passwords → Create (intent: **API**)\n\n## Events handled\n\n| Event | Action |\n|---|---|\n| `committee.oidc_group_added` | Create Authentik group if it doesn't already exist |\n| `committee.oidc_group_removed` | Delete group if we created it and no other committee still references it |\n| `committee.deleted` | Delete each orphaned group we created |\n| `committee.created` | No-op (no groups attached yet) |\n\n## Ownership tagging\n\nGroups created by this workflow have:\n```\nattributes.managed_by  = \"n8n-caucus-handler\"\nattributes.created_for = \"<group_name>\"\n```\nOnly groups carrying this tag are ever deleted.",
+        "height": 400,
+        "width": 560,
+        "color": 4
+      },
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -200]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-events",
+        "responseMode": "onReceived",
+        "responseData": "noData",
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Receive Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "caucus-meeting-events"
+    },
+
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-url",
+              "name": "authentik_base_url",
+              "value": "http://authentik-server:9000",
+              "type": "string"
+            },
+            {
+              "id": "cfg-token",
+              "name": "authentik_token",
+              "value": "REPLACE_WITH_AUTHENTIK_API_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "cfg-marker",
+              "name": "managed_by_marker",
+              "value": "n8n-caucus-handler",
+              "type": "string"
+            },
+            {
+              "id": "cfg-webhooksecret",
+              "name": "webhook_secret",
+              "value": "REPLACE_WITH_WEBHOOK_SECRET",
+              "type": "string"
+            }
+          ]
+        },
+        "options": { "includeOtherFields": true }
+      },
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "auth-header-check",
+              "leftValue": "={{ !$json.webhook_secret || $json.headers['x-webhook-secret'] === $json.webhook_secret }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-00000000001a",
+      "name": "Auth Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.body.event }}",
+        "rules": {
+          "rules": [
+            { "value2": "committee.oidc_group_added",  "output": 0 },
+            { "value2": "committee.oidc_group_removed", "output": 1 },
+            { "value2": "committee.deleted",            "output": 2 }
+          ]
+        },
+        "fallbackOutput": 3
+      },
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "Route by Event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+
+    {
+      "parameters": {
+        "content": "## committee.oidc_group_added\n\nA new OIDC group rule was added to a committee.\nCreate the group in Authentik if it doesn't exist yet.\nIdempotent: if another committee rule already caused creation, skip.",
+        "height": 140,
+        "width": 340,
+        "color": 3
+      },
+      "id": "00000000-0000-0000-0000-000000000005",
+      "name": "Note: group added",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [960, -60]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.authentik_base_url }}/api/v3/core/groups/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $('Receive Event').item.json.body.group.group_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000006",
+      "name": "Look Up Group (add)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 100]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "if-add-1",
+              "leftValue": "={{ $json.pagination.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000007",
+      "name": "Group Not Yet in Authentik?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 100]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.authentik_base_url }}/api/v3/core/groups/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Receive Event').item.json.body.group.group_name, attributes: { managed_by: $('Config').item.json.managed_by_marker, created_for: $('Receive Event').item.json.body.group.group_name, committee_slug: $('Receive Event').item.json.body.committee.slug } }) }}",
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000008",
+      "name": "Create Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 20]
+    },
+
+    {
+      "parameters": {
+        "content": "## committee.oidc_group_removed\n\nA group rule was removed from a committee.\nOnly delete the Authentik group if:\n1. We created it (managed_by tag present)\n2. No other committee still references it\n   (`still_referenced_by_other_committees: false`)",
+        "height": 160,
+        "width": 340,
+        "color": 6
+      },
+      "id": "00000000-0000-0000-0000-000000000009",
+      "name": "Note: group removed",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [960, 260]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "if-rem-orphan",
+              "leftValue": "={{ $('Receive Event').item.json.body.group.still_referenced_by_other_committees }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "Still Used by Other Committees?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [960, 420]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.authentik_base_url }}/api/v3/core/groups/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $('Receive Event').item.json.body.group.group_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000011",
+      "name": "Look Up Group (remove)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 360]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "if-rem-exists",
+              "leftValue": "={{ $json.pagination.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            },
+            {
+              "id": "if-rem-owned",
+              "leftValue": "={{ $json.results[0].attributes.managed_by }}",
+              "rightValue": "={{ $('Config').item.json.managed_by_marker }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000012",
+      "name": "Group Exists and We Own It? (remove)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 360]
+    },
+
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Config').item.json.authentik_base_url + '/api/v3/core/groups/' + $('Look Up Group (remove)').item.json.results[0].pk + '/' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000013",
+      "name": "Delete Group (remove path)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 280]
+    },
+
+    {
+      "parameters": {
+        "content": "## committee.deleted\n\nThe entire committee was deleted.\nIterate over each group in `oidc_groups` and delete those\nthat are orphaned (`still_referenced_by_other_committees: false`)\nand that we created.",
+        "height": 160,
+        "width": 340,
+        "color": 7
+      },
+      "id": "00000000-0000-0000-0000-000000000014",
+      "name": "Note: committee deleted",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [960, 560]
+    },
+
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.oidc_groups",
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000015",
+      "name": "Split Orphaned Groups",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [960, 720]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "if-del-orphan",
+              "leftValue": "={{ $json.still_referenced_by_other_committees }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000016",
+      "name": "Is This Group Orphaned?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 720]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.authentik_base_url }}/api/v3/core/groups/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.group_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000017",
+      "name": "Look Up Group (delete path)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 640]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "if-del-exists",
+              "leftValue": "={{ $json.pagination.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            },
+            {
+              "id": "if-del-owned",
+              "leftValue": "={{ $json.results[0].attributes.managed_by }}",
+              "rightValue": "={{ $('Config').item.json.managed_by_marker }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000018",
+      "name": "Group Exists and We Own It? (delete)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1680, 640]
+    },
+
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Config').item.json.authentik_base_url + '/api/v3/core/groups/' + $('Look Up Group (delete path)').item.json.results[0].pk + '/' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').item.json.authentik_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-0000-0000-000000000019",
+      "name": "Delete Group (delete path)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, 560]
+    }
+  ],
+
+  "connections": {
+    "Receive Event": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Auth Valid?", "type": "main", "index": 0 }]]
+    },
+    "Auth Valid?": {
+      "main": [
+        [{ "node": "Route by Event", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Route by Event": {
+      "main": [
+        [{ "node": "Look Up Group (add)",             "type": "main", "index": 0 }],
+        [{ "node": "Still Used by Other Committees?", "type": "main", "index": 0 }],
+        [{ "node": "Split Orphaned Groups",           "type": "main", "index": 0 }]
+      ]
+    },
+    "Look Up Group (add)": {
+      "main": [[{ "node": "Group Not Yet in Authentik?", "type": "main", "index": 0 }]]
+    },
+    "Group Not Yet in Authentik?": {
+      "main": [
+        [{ "node": "Create Group", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Still Used by Other Committees?": {
+      "main": [
+        [{ "node": "Look Up Group (remove)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Look Up Group (remove)": {
+      "main": [[{ "node": "Group Exists and We Own It? (remove)", "type": "main", "index": 0 }]]
+    },
+    "Group Exists and We Own It? (remove)": {
+      "main": [
+        [{ "node": "Delete Group (remove path)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Split Orphaned Groups": {
+      "main": [[{ "node": "Is This Group Orphaned?", "type": "main", "index": 0 }]]
+    },
+    "Is This Group Orphaned?": {
+      "main": [
+        [{ "node": "Look Up Group (delete path)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Look Up Group (delete path)": {
+      "main": [[{ "node": "Group Exists and We Own It? (delete)", "type": "main", "index": 0 }]]
+    },
+    "Group Exists and We Own It? (delete)": {
+      "main": [
+        [{ "node": "Delete Group (delete path)", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "cafecafe-cafe-cafe-cafe-cafecafecafe"
+}

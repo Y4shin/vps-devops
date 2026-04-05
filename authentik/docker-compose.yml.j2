@@ -70,6 +70,12 @@ services:
       - "traefik.http.routers.authentik-foundry-outpost.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik-foundry-outpost.service=authentik-foundry-outpost"
       - "traefik.http.services.authentik-foundry-outpost.loadbalancer.server.port=9000"
+      - "traefik.http.routers.authentik-n8n-outpost.rule=Host(`n8n.{{ secrets.domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-n8n-outpost.entrypoints=websecure"
+      - "traefik.http.routers.authentik-n8n-outpost.priority=100"
+      - "traefik.http.routers.authentik-n8n-outpost.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik-n8n-outpost.service=authentik-n8n-outpost"
+      - "traefik.http.services.authentik-n8n-outpost.loadbalancer.server.port=9000"
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.2.1}

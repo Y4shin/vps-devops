@@ -3,3 +3,4 @@
 - import_playbook: traefik.yml
 - import_playbook: authentik.yml
 - import_playbook: witness.yml
+- import_playbook: n8n.yml

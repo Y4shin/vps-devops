@@ -18,6 +18,9 @@
     conference_tool_application_slug: "conference-tool"
     conference_tool_access_group: "conference-user"
     conference_tool_admin_group: "conference-admin"
+    n8n_proxy_provider_name: "n8n"
+    n8n_application_slug: "n8n"
+    n8n_access_group: "n8n-access"
 
   tasks:
     - name: Check whether Authentik secrets file exists
@@ -834,6 +837,122 @@
           retries: 30
           delay: 5
           until: authentik_foundry_access_group_seed.rc == 0
+
+        - name: Create recovery flow and assign to Authentik brand
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.flows.models import Flow, FlowDesignation, FlowAuthenticationRequirement, FlowStageBinding
+                from authentik.stages.email.models import EmailStage
+                from authentik.stages.prompt.models import Prompt, PromptStage
+                from authentik.stages.user_write.models import UserWriteStage
+                from authentik.stages.user_login.models import UserLoginStage
+                from authentik.brands.models import Brand
+                changed = []
+                email_stage, c = EmailStage.objects.get_or_create(
+                    name="vps-recovery-email",
+                    defaults={"use_global_settings": True, "template": "email/password_reset.html", "activate_user_on_success": True},
+                )
+                if c:
+                    changed.append("email-stage")
+                pw_prompt, c = Prompt.objects.get_or_create(
+                    name="vps-recovery-password",
+                    defaults={"field_key": "password", "label": "New Password", "type": "password", "required": True, "order": 0},
+                )
+                if c:
+                    changed.append("pw-prompt")
+                pw_stage, c = PromptStage.objects.get_or_create(name="vps-recovery-prompt")
+                if c:
+                    pw_stage.fields.set([pw_prompt])
+                    changed.append("prompt-stage")
+                write_stage, _ = UserWriteStage.objects.get_or_create(name="vps-recovery-user-write")
+                login_stage, _ = UserLoginStage.objects.get_or_create(name="vps-recovery-user-login")
+                flow, c = Flow.objects.get_or_create(
+                    slug="vps-recovery-flow",
+                    defaults={"name": "VPS Recovery Flow", "title": "Reset your password", "designation": FlowDesignation.RECOVERY, "authentication": FlowAuthenticationRequirement.REQUIRE_UNAUTHENTICATED},
+                )
+                if c:
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=email_stage, order=0)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=pw_stage, order=10)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=write_stage, order=20)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=login_stage, order=30)
+                    changed.append("flow")
+                brand = Brand.objects.filter(domain="authentik." + {{ secrets.domain | to_json }}).first()
+                if brand and brand.flow_recovery_id != flow.pk:
+                    brand.flow_recovery = flow
+                    brand.save(update_fields=["flow_recovery"])
+                    changed.append("brand")
+                print("changed" if changed else "ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_recovery_flow
+          changed_when: "'changed' in authentik_recovery_flow.stdout"
+          retries: 10
+          delay: 5
+          until: authentik_recovery_flow.rc == 0
+
+        - name: Create enrollment flow with invitation stage
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - exec
+              - -T
+              - server
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.flows.models import Flow, FlowDesignation, FlowAuthenticationRequirement, FlowStageBinding
+                from authentik.stages.invitation.models import InvitationStage
+                from authentik.stages.prompt.models import Prompt, PromptStage
+                from authentik.stages.user_write.models import UserWriteStage
+                from authentik.stages.user_login.models import UserLoginStage
+                changed = []
+                invite_stage, c = InvitationStage.objects.get_or_create(
+                    name="vps-enrollment-invitation",
+                    defaults={"continue_flow_without_invitation": False},
+                )
+                if c:
+                    changed.append("invite-stage")
+                pw_prompt, c = Prompt.objects.get_or_create(
+                    name="vps-enrollment-password",
+                    defaults={"field_key": "password", "label": "Password", "type": "password", "required": True, "order": 0},
+                )
+                if c:
+                    changed.append("pw-prompt")
+                pw_stage, c = PromptStage.objects.get_or_create(name="vps-enrollment-prompt")
+                if c:
+                    pw_stage.fields.set([pw_prompt])
+                    changed.append("prompt-stage")
+                write_stage, _ = UserWriteStage.objects.get_or_create(name="vps-enrollment-user-write")
+                login_stage, _ = UserLoginStage.objects.get_or_create(name="vps-enrollment-user-login")
+                flow, c = Flow.objects.get_or_create(
+                    slug="vps-enrollment-flow",
+                    defaults={"name": "VPS Enrollment Flow", "title": "Welcome", "designation": FlowDesignation.ENROLLMENT, "authentication": FlowAuthenticationRequirement.REQUIRE_UNAUTHENTICATED},
+                )
+                if c:
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=invite_stage, order=0)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=pw_stage, order=10)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=write_stage, order=20)
+                    FlowStageBinding.objects.get_or_create(target=flow, stage=login_stage, order=30)
+                    changed.append("flow")
+                print("changed" if changed else "ok")
+          args:
+            chdir: /opt/vps-devops/authentik
+          register: authentik_enrollment_flow
+          changed_when: "'changed' in authentik_enrollment_flow.stdout"
+          retries: 10
+          delay: 5
+          until: authentik_enrollment_flow.rc == 0
 
         - name: Set flow background on Authentik and Traefik brands
           ansible.builtin.command:

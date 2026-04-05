@@ -25,6 +25,7 @@
             rsync
             yq-go
             lefthook
+            (python3.withPackages (ps: [ ps.hcloud ps.jinja2 ps.pyyaml ]))
           ];
 
           shellHook = ''

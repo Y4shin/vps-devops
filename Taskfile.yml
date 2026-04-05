@@ -80,6 +80,19 @@ tasks:
       - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/conference-tool.yml
 
+  deploy:n8n:
+    desc: Deploy n8n only
+    deps: [decrypt]
+    cmds:
+      - defer: rm -f ansible/inventory.yml
+      - bash ./scripts/local/run-playbook.sh ansible/n8n.yml
+
+  ssh:n8n:
+    desc: SSH into the n8n directory with a temporary .env
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/n8n "" ./scripts/local/env-builders/n8n.sh
+
   deploy:mail:
     desc: Deploy outbound mail relay only
     deps: [decrypt]
@@ -385,6 +398,29 @@ tasks:
             echo "Update available! Run: task deploy:witness"
           fi
         '
+
+  dns:plan:
+    desc: Show proposed DNS changes without applying them (dry run)
+    cmds:
+      - python3 ./scripts/local/dns-sync.py --dry-run {{.CLI_ARGS}}
+
+  dns:sync:
+    desc: Sync dns-records.yaml files to Hetzner DNS (shows diff, prompts, auto-backup)
+    cmds:
+      - python3 ./scripts/local/dns-sync.py {{.CLI_ARGS}}
+
+  dns:backup:list:
+    desc: List all stored encrypted DNS zone backups
+    cmds:
+      - python3 ./scripts/local/dns-sync.py list-backups
+
+  dns:backup:restore:
+    desc: "Restore a DNS zone backup by index. Usage: task dns:backup:restore INDEX=0"
+    preconditions:
+      - sh: test -n "{{.INDEX}}"
+        msg: "dns:backup:restore requires INDEX=<n>  (see: task dns:backup:list)"
+    cmds:
+      - python3 ./scripts/local/dns-sync.py restore --index {{.INDEX}} {{.CLI_ARGS}}
 
   secrets:edit:
     desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"

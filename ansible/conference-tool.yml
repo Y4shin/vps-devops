@@ -38,6 +38,24 @@
         conference_tool_secrets: "{{ lookup('community.sops.sops', repo_root + '/conference-tool/.env.sops.yaml') | from_yaml }}"
       no_log: true
 
+    - name: Check whether n8n secrets file exists (for webhook secret)
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/n8n/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: ct_n8n_secrets_file
+
+    - name: Load n8n secrets for webhook integration
+      ansible.builtin.set_fact:
+        ct_n8n_secrets: "{{ lookup('community.sops.sops', repo_root + '/n8n/.env.sops.yaml') | from_yaml }}"
+      when: ct_n8n_secrets_file.stat.exists
+      no_log: true
+
+    - name: Set webhook secret fact
+      ansible.builtin.set_fact:
+        ct_webhook_secret: "{{ ct_n8n_secrets.WEBHOOK_SECRET | default('') }}"
+      no_log: true
+
     - name: Validate conference-tool secrets
       ansible.builtin.assert:
         that:
@@ -296,6 +314,8 @@
           OAUTH_PROVISIONING_MODE=auto_create
           OAUTH_REQUIRED_GROUPS={{ conference_tool_access_group }}
           OAUTH_ADMIN_GROUP={{ conference_tool_admin_group }}
+          WEBHOOK_URLS=https://n8n.{{ secrets.domain }}/webhook/meeting-events
+          WEBHOOK_SECRET={{ ct_webhook_secret | default('') }}
       no_log: true
 
     - name: Build conference-tool env hash
