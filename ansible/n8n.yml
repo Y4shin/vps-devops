@@ -21,7 +21,7 @@
         msg: >-
           Create {{ repo_root }}/n8n/.env.sops.yaml with
           N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL, N8N_OWNER_PASSWORD,
-          AUTHENTIK_API_TOKEN, and WEBHOOK_SECRET before deploying n8n.
+          and WEBHOOK_SECRET before deploying n8n.
       when: not n8n_secrets_file.stat.exists
 
     - name: Set secrets variables
@@ -39,13 +39,34 @@
           - (n8n_secrets.N8N_OWNER_EMAIL | trim) != ""
           - n8n_secrets.N8N_OWNER_PASSWORD is defined
           - (n8n_secrets.N8N_OWNER_PASSWORD | trim) != ""
-          - n8n_secrets.AUTHENTIK_API_TOKEN is defined
-          - (n8n_secrets.AUTHENTIK_API_TOKEN | trim) != ""
           - n8n_secrets.WEBHOOK_SECRET is defined
           - (n8n_secrets.WEBHOOK_SECRET | trim) != ""
         fail_msg: >-
           n8n/.env.sops.yaml must define N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL,
-          N8N_OWNER_PASSWORD, AUTHENTIK_API_TOKEN, and WEBHOOK_SECRET.
+          N8N_OWNER_PASSWORD, and WEBHOOK_SECRET.
+      no_log: true
+
+    - name: Check for Authentik-provisioned n8n API token
+      ansible.builtin.stat:
+        path: /opt/vps-devops/authentik/n8n-api-token
+      register: n8n_api_token_file_stat
+
+    - name: Require Authentik-provisioned n8n API token
+      ansible.builtin.fail:
+        msg: >-
+          /opt/vps-devops/authentik/n8n-api-token not found.
+          Run task deploy:authentik first to provision the n8n service account and API token.
+      when: not n8n_api_token_file_stat.stat.exists
+
+    - name: Read Authentik-provisioned n8n API token
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/authentik/n8n-api-token
+      register: n8n_api_token_raw
+      no_log: true
+
+    - name: Set n8n Authentik API token fact
+      ansible.builtin.set_fact:
+        n8n_authentik_api_token: "{{ n8n_api_token_raw.content | b64decode | trim }}"
       no_log: true
 
     - name: Create n8n directory
@@ -132,7 +153,7 @@
                       if a['name'] == 'authentik_base_url':
                           a['value'] = 'https://authentik.{{ secrets.domain }}'
                       elif a['name'] == 'authentik_token':
-                          a['value'] = '{{ n8n_secrets.AUTHENTIK_API_TOKEN }}'
+                          a['value'] = '{{ n8n_authentik_api_token }}'
                       elif a['name'] == 'webhook_secret':
                           a['value'] = '{{ n8n_secrets.WEBHOOK_SECRET }}'
 
@@ -147,23 +168,58 @@
           set -euo pipefail
 
           N8N="http://127.0.0.1:5678"
-          OWNER_EMAIL={{ n8n_secrets.N8N_OWNER_EMAIL | to_json }}
-          OWNER_PASSWORD={{ n8n_secrets.N8N_OWNER_PASSWORD | to_json }}
-          WORKFLOW_NAME={{ n8n_workflow_name | to_json }}
+          OWNER_EMAIL='{{ n8n_secrets.N8N_OWNER_EMAIL | to_json }}'
+          OWNER_PASSWORD='{{ n8n_secrets.N8N_OWNER_PASSWORD | to_json }}'
+          WORKFLOW_NAME='{{ n8n_workflow_name | to_json }}'
           COOKIE=$(mktemp)
           trap "rm -f $COOKIE /opt/vps-devops/n8n/workflow-deploy.json" EXIT
 
-          # Set up owner account (no-op if already done)
-          curl -sf --max-time 15 -X POST "$N8N/setup" \
-            -H 'Content-Type: application/json' \
-            -d "{\"email\":$OWNER_EMAIL,\"firstName\":\"Admin\",\"lastName\":\"Admin\",\"password\":$OWNER_PASSWORD,\"mfaEnabled\":false}" \
-            -o /dev/null || true
+          wait_for_rest_api() {
+            # /healthz passes before the REST layer is ready; /rest/settings
+            # only returns 200 once the full API is initialised.
+            for i in $(seq 1 30); do
+              REST_STATUS=$(curl -s --max-time 5 "$N8N/rest/settings" \
+                -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+              [ "$REST_STATUS" = "200" ] && return 0
+              sleep 3
+            done
+            echo "n8n REST API did not become ready in time" >&2
+            return 1
+          }
 
-          # Login
-          HTTP=$(curl -sf --max-time 15 -X POST "$N8N/rest/login" \
-            -H 'Content-Type: application/json' \
-            -d "{\"email\":$OWNER_EMAIL,\"password\":$OWNER_PASSWORD}" \
-            -c "$COOKIE" -o /dev/null -w "%{http_code}")
+          wait_for_rest_api
+
+          # Attempt login (owner already exists from prior run)
+          HTTP="000"
+          for i in 1 2 3; do
+            HTTP=$(curl -s --max-time 15 -X POST "$N8N/rest/login" \
+              -H 'Content-Type: application/json' \
+              -d "{\"emailOrLdapLoginId\":$OWNER_EMAIL,\"password\":$OWNER_PASSWORD}" \
+              -c "$COOKIE" -o /dev/null -w "%{http_code}")
+            [ "$HTTP" = "200" ] && break
+            [ "$HTTP" = "401" ] && break  # wrong credentials — stop retrying
+            sleep 3
+          done
+
+          if [ "$HTTP" != "200" ]; then
+            # Credentials don't match or no owner set up.
+            # Stop the container before reset to avoid SQLite lock conflicts.
+            docker stop n8n-n8n-1
+            docker run --rm -v n8n_data:/home/node/.n8n \
+              --entrypoint /usr/local/bin/n8n n8nio/n8n:latest user-management:reset
+            docker start n8n-n8n-1
+            wait_for_rest_api
+            # Setup owner
+            curl -s --max-time 15 -X POST "$N8N/rest/owner/setup" \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":$OWNER_EMAIL,\"firstName\":\"Admin\",\"lastName\":\"Admin\",\"password\":$OWNER_PASSWORD,\"mfaEnabled\":false}" \
+              -o /dev/null
+            HTTP=$(curl -s --max-time 15 -X POST "$N8N/rest/login" \
+              -H 'Content-Type: application/json' \
+              -d "{\"emailOrLdapLoginId\":$OWNER_EMAIL,\"password\":$OWNER_PASSWORD}" \
+              -c "$COOKIE" -o /dev/null -w "%{http_code}")
+          fi
+
           if [ "$HTTP" != "200" ]; then
             echo "n8n login failed (HTTP $HTTP)" >&2
             exit 1
@@ -173,7 +229,7 @@
 
           # Check if workflow already exists
           EXISTING=$(curl -sf --max-time 15 \
-            -b "$COOKIE" "$N8N/api/v1/workflows?limit=100" | \
+            -b "$COOKIE" "$N8N/rest/workflows" | \
             python3 -c "
           import sys, json
           data = json.load(sys.stdin)
@@ -184,37 +240,75 @@
           ")
 
           if [ -n "$EXISTING" ]; then
-            # Update existing workflow (PUT requires the id inside the body)
+            # Fetch current versionId, then PATCH
+            VERSION_ID=$(curl -sf --max-time 15 -b "$COOKIE" "$N8N/rest/workflows/$EXISTING" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['data']['versionId'])")
             PATCHED=$(echo "$WORKFLOW_JSON" | python3 -c "
           import sys, json
           wf = json.load(sys.stdin)
           wf['id'] = sys.argv[1]
+          wf['versionId'] = sys.argv[2]
           print(json.dumps(wf))
-          " "$EXISTING")
-            curl -sf --max-time 15 -X PUT \
+          " "$EXISTING" "$VERSION_ID")
+            PATCH_RESP=$(curl -sf --max-time 15 -X PATCH \
               -H 'Content-Type: application/json' \
               -b "$COOKIE" \
-              "$N8N/api/v1/workflows/$EXISTING" \
-              -d "$PATCHED" -o /dev/null
+              "$N8N/rest/workflows/$EXISTING" \
+              -d "$PATCHED")
+            VERSION_ID=$(echo "$PATCH_RESP" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['versionId'])")
             WORKFLOW_ID="$EXISTING"
             echo "Updated workflow $WORKFLOW_ID"
           else
-            WORKFLOW_ID=$(curl -sf --max-time 15 -X POST \
+            CREATED=$(curl -sf --max-time 15 -X POST \
               -H 'Content-Type: application/json' \
               -b "$COOKIE" \
-              "$N8N/api/v1/workflows" \
-              -d "$WORKFLOW_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+              "$N8N/rest/workflows" \
+              -d "$WORKFLOW_JSON")
+            WORKFLOW_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+            VERSION_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['versionId'])")
             echo "Created workflow $WORKFLOW_ID"
           fi
 
-          # Activate
-          curl -sf --max-time 15 -X POST \
-            -b "$COOKIE" \
-            "$N8N/api/v1/workflows/$WORKFLOW_ID/activate" -o /dev/null
-          echo "Activated workflow $WORKFLOW_ID"
-      no_log: true
+          # Activate; on 409 (webhook conflict) deactivate the conflicting workflow and retry
+          ACTIVATE_TMP=$(mktemp)
+          for _act_retry in 1 2; do
+            ACTIVATE_HTTP=$(curl -s --max-time 15 -X POST \
+              -H 'Content-Type: application/json' \
+              -b "$COOKIE" \
+              "$N8N/rest/workflows/$WORKFLOW_ID/activate" \
+              -d "{\"versionId\":\"$VERSION_ID\"}" \
+              -o "$ACTIVATE_TMP" -w "%{http_code}")
+            if [ "$ACTIVATE_HTTP" = "200" ]; then
+              rm -f "$ACTIVATE_TMP"
+              echo "Activated workflow $WORKFLOW_ID"
+              break
+            elif [ "$ACTIVATE_HTTP" = "409" ] && [ "$_act_retry" = "1" ]; then
+              CONFLICTS=$(python3 -c "
+          import sys, json
+          try:
+              resp = json.load(open('$ACTIVATE_TMP'))
+              for c in json.loads(resp.get('hint', '[]')):
+                  print(c['conflict']['workflowId'])
+          except Exception:
+              pass
+          " 2>/dev/null || true)
+              while IFS= read -r _wfid; do
+                [ -n "$_wfid" ] || continue
+                curl -sf -X POST "$N8N/rest/workflows/$_wfid/deactivate" \
+                  -b "$COOKIE" -o /dev/null || true
+                echo "Deactivated conflicting workflow $_wfid"
+              done <<< "$CONFLICTS"
+            else
+              rm -f "$ACTIVATE_TMP"
+              echo "Activate failed (HTTP $ACTIVATE_HTTP)" >&2
+              exit 1
+            fi
+          done
+      args:
+        executable: /bin/bash
       register: n8n_workflow_result
       changed_when: "'Created workflow' in n8n_workflow_result.stdout"
+      no_log: true
 
     - name: Show workflow deployment result
       ansible.builtin.debug:

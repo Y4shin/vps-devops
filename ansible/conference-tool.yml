@@ -165,6 +165,15 @@
         mode: "0700"
       become: true
 
+    - name: Ensure conference-tool backup lock file is writable by deploy
+      ansible.builtin.file:
+        path: /opt/vps-devops/backups/conference-tool-staging.lock
+        state: touch
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_group }}"
+        mode: "0660"
+      become: true
+
     - name: Write conference-tool backup environment file
       ansible.builtin.copy:
         dest: /opt/vps-devops/scripts/conference-tool-backup-env

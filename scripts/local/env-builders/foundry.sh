@@ -31,22 +31,29 @@ fi
 hostname="$(extract_optional "$app_file" '["FOUNDRY_PUBLIC_HOSTNAME"]')"
 hostname="${hostname:-foundry.${domain}}"
 
+proxy_port="$(extract_optional "$app_file" '["FOUNDRY_PROXY_PORT"]')"
+proxy_ssl="$(extract_optional "$app_file" '["FOUNDRY_PROXY_SSL"]')"
+upnp="$(extract_optional "$app_file" '["FOUNDRY_UPNP"]')"
+container_cache="$(extract_optional "$app_file" '["CONTAINER_CACHE"]')"
+container_preserve_config="$(extract_optional "$app_file" '["CONTAINER_PRESERVE_CONFIG"]')"
+tz="$(extract_optional "$app_file" '["TZ"]')"
+
 cat <<EOF
 FOUNDRY_ADMIN_KEY=$(extract "$app_file" '["FOUNDRY_ADMIN_KEY"]')
 FOUNDRY_HOSTNAME=${hostname}
-FOUNDRY_PROXY_PORT=$(extract_optional "$app_file" '["FOUNDRY_PROXY_PORT"]' || echo 443)
-FOUNDRY_PROXY_SSL=$(extract_optional "$app_file" '["FOUNDRY_PROXY_SSL"]' || echo true)
-FOUNDRY_UPNP=$(extract_optional "$app_file" '["FOUNDRY_UPNP"]' || echo false)
-CONTAINER_CACHE=$(extract_optional "$app_file" '["CONTAINER_CACHE"]' || echo /data/container_cache)
-CONTAINER_PRESERVE_CONFIG=$(extract_optional "$app_file" '["CONTAINER_PRESERVE_CONFIG"]' || echo false)
-TZ=$(extract_optional "$app_file" '["TZ"]' || echo UTC)
+FOUNDRY_PROXY_PORT=${proxy_port:-443}
+FOUNDRY_PROXY_SSL=${proxy_ssl:-true}
+FOUNDRY_UPNP=${upnp:-false}
+CONTAINER_CACHE=${container_cache:-/data/container_cache}
+CONTAINER_PRESERVE_CONFIG=${container_preserve_config:-false}
+TZ=${tz:-UTC}
 EOF
 
 license_key="$(extract_optional "$app_file" '["FOUNDRY_LICENSE_KEY"]')"
-[[ -n "$license_key" ]] && echo "FOUNDRY_LICENSE_KEY=${license_key}"
+if [[ -n "$license_key" ]]; then echo "FOUNDRY_LICENSE_KEY=${license_key}"; fi
 
 password_salt="$(extract_optional "$app_file" '["FOUNDRY_PASSWORD_SALT"]')"
-[[ -n "$password_salt" ]] && echo "FOUNDRY_PASSWORD_SALT=${password_salt}"
+if [[ -n "$password_salt" ]]; then echo "FOUNDRY_PASSWORD_SALT=${password_salt}"; fi
 
 world="$(extract_optional "$app_file" '["FOUNDRY_WORLD"]')"
-[[ -n "$world" ]] && echo "FOUNDRY_WORLD=${world}"
+if [[ -n "$world" ]]; then echo "FOUNDRY_WORLD=${world}"; fi

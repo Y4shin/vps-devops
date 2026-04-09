@@ -45,7 +45,7 @@
           mail/.env.sops.yaml must define MAIL_SUBMISSION_PASSWORD.
       no_log: true
 
-    - name: Create mail directories
+    - name: Create mail directories (deploy-owned)
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -56,8 +56,15 @@
         - /opt/vps-devops/mail
         - /opt/vps-devops/mail/config
         - /opt/vps-devops/mail/config/rspamd
-        - /opt/vps-devops/mail/config/rspamd/dkim
         - /opt/vps-devops/mail/data
+
+    - name: Create mail directories (container-managed, no ownership enforcement)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /opt/vps-devops/mail/config/rspamd/dkim
         - /opt/vps-devops/mail/data/mail-data
         - /opt/vps-devops/mail/data/mail-state
         - /opt/vps-devops/mail/data/mail-logs

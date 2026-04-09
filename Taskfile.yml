@@ -241,6 +241,13 @@ tasks:
     cmds:
       - bash ./scripts/local/witness-backup-info.sh
 
+  witness:backup:contents:
+    desc: "List files inside a witness Borg archive. Requires ARCHIVE=<name> (see: task witness:backup:info)"
+    cmds:
+      - bash ./scripts/local/borg-list-archive.sh reporting-tool/.env.sops.yaml "{{.ARCHIVE}}"
+    requires:
+      vars: [ARCHIVE]
+
   witness:backup:perform:
     desc: SSH to the VPS and run the witness backup script
     cmds:
@@ -257,6 +264,13 @@ tasks:
     cmds:
       - bash ./scripts/local/authentik-backup-info.sh
 
+  authentik:backup:contents:
+    desc: "List files inside an Authentik Borg archive. Requires ARCHIVE=<name> (see: task authentik:backup:info)"
+    cmds:
+      - bash ./scripts/local/borg-list-archive.sh authentik/.env.sops.yaml "{{.ARCHIVE}}"
+    requires:
+      vars: [ARCHIVE]
+
   authentik:backup:perform:
     desc: SSH to the VPS and run the Authentik backup script
     cmds:
@@ -272,6 +286,13 @@ tasks:
     desc: Show Borg repo info and archive list for the Foundry backup repo
     cmds:
       - bash ./scripts/local/foundry-backup-info.sh
+
+  foundry:backup:contents:
+    desc: "List files inside a Foundry Borg archive. Requires ARCHIVE=<name> (see: task foundry:backup:info)"
+    cmds:
+      - bash ./scripts/local/borg-list-archive.sh foundry/.env.sops.yaml "{{.ARCHIVE}}"
+    requires:
+      vars: [ARCHIVE]
 
   foundry:backup:perform:
     desc: SSH to the VPS and run the Foundry backup script
@@ -311,10 +332,23 @@ tasks:
     cmds:
       - SOURCE="{{.SOURCE}}" DELETE="{{.DELETE}}" SOURCE_SSH_KEY="{{.SOURCE_SSH_KEY}}" SOURCE_SSH_PORT="{{.SOURCE_SSH_PORT}}" bash ./scripts/local/migrate-foundry-data.sh
 
+  foundry:migrate:from-old-server:
+    desc: "Migrate Foundry data from the old server (root@85.215.78.153) to the VPS. Stops foundry on the old server, stages data locally, then syncs. Run task deploy:foundry afterwards."
+    interactive: true
+    cmds:
+      - SOURCE="root@85.215.78.153:/opt/docker_compose/data/foundry" DELETE=1 SOURCE_COMPOSE_DIR=/opt/docker_compose SOURCE_COMPOSE_SERVICE=foundry bash ./scripts/local/migrate-foundry-data.sh
+
   conference-tool:backup:info:
     desc: Show Borg repo info and archive list for the conference-tool backup repo
     cmds:
       - bash ./scripts/local/conference-tool-backup-info.sh
+
+  conference-tool:backup:contents:
+    desc: "List files inside a conference-tool Borg archive. Requires ARCHIVE=<name> (see: task conference-tool:backup:info)"
+    cmds:
+      - bash ./scripts/local/borg-list-archive.sh conference-tool/.env.sops.yaml "{{.ARCHIVE}}"
+    requires:
+      vars: [ARCHIVE]
 
   conference-tool:backup:perform:
     desc: SSH to the VPS and run the conference-tool backup script

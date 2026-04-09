@@ -40,7 +40,10 @@ container_is_running() {
 
 reset_staging_dir() {
   mkdir -p "$CT_STAGING_DIR"
-  find "$CT_STAGING_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  # Run as root inside a container so files owned by any container UID can be removed
+  docker run --rm \
+    -v "${CT_STAGING_DIR}:/staging" \
+    alpine:3.22 sh -c 'find /staging -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 }
 
 require_env BORG_REPO
@@ -108,10 +111,12 @@ else
 fi
 
 log_step "Copying volume data into staging"
+DEPLOY_UID="$(id -u)"
+DEPLOY_GID="$(id -g)"
 docker run --rm \
   -v "${CT_DB_VOLUME}:/data:ro" \
   -v "${CT_STAGING_DIR}/data:/staging" \
-  alpine:3.22 sh -c 'cp -a /data/. /staging/'
+  alpine:3.22 sh -c "cp -a /data/. /staging/ && chown -R ${DEPLOY_UID}:${DEPLOY_GID} /staging/"
 
 backup_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 hostname_value="$(hostname -f 2>/dev/null || hostname)"

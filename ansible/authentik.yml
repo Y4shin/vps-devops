@@ -1009,6 +1009,56 @@
             - (authentik_secrets.AUTHENTIK_ADMIN_USERNAME | trim) != ""
             - authentik_secrets.AUTHENTIK_ADMIN_PASSWORD is defined
             - (authentik_secrets.AUTHENTIK_ADMIN_PASSWORD | trim) != ""
+
+        - name: Provision n8n service account and API token in Authentik
+          ansible.builtin.command:
+            argv:
+              - docker
+              - exec
+              - authentik-server-1
+              - ak
+              - shell
+              - -c
+              - |
+                from authentik.core.models import Token, User, Group, UserTypes
+
+                user, _ = User.objects.get_or_create(
+                    username="n8n-service-account",
+                    defaults={
+                        "name": "n8n Service Account",
+                        "is_active": True,
+                        "type": UserTypes.SERVICE_ACCOUNT,
+                        "email": "",
+                    }
+                )
+                admin_group = Group.objects.get(is_superuser=True, name="authentik Admins")
+                admin_group.users.add(user)
+                token, _ = Token.objects.get_or_create(
+                    identifier="n8n-api-token",
+                    defaults={
+                        "user": user,
+                        "intent": "intent_api",
+                        "description": "API token for n8n workflow automation",
+                        "expiring": False,
+                    }
+                )
+                print(token.key)
+          register: n8n_api_token_result
+          changed_when: false
+          retries: 10
+          delay: 5
+          until: n8n_api_token_result.rc == 0
+          no_log: true
+
+        - name: Write n8n API token to shared file
+          ansible.builtin.copy:
+            dest: /opt/vps-devops/authentik/n8n-api-token
+            content: "{{ n8n_api_token_result.stdout_lines | last }}"
+            owner: "{{ deploy_user }}"
+            group: "{{ deploy_group }}"
+            mode: "0640"
+          no_log: true
+
       always:
         - name: Remove Authentik temporary env artifacts
           ansible.builtin.file:

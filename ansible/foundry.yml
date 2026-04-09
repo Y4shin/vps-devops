@@ -9,7 +9,7 @@
     deploy_group: "deploy"
     foundry_container_name: "foundry-foundry-1"
     foundry_archive_prefix: "foundry"
-    foundry_image: "felddy/foundryvtt:13.351"
+    foundry_image: "felddy/foundryvtt:14.359"
     foundry_default_public_hostname: "foundry.{{ secrets.domain }}"
 
   tasks:
@@ -74,10 +74,21 @@
         owner: "{{ item.owner | default(deploy_user) }}"
         group: "{{ item.group | default(deploy_group) }}"
         mode: "{{ item.mode }}"
+      become: true
       loop:
         - { path: /opt/vps-devops/foundry, mode: "0755" }
-        - { path: /opt/vps-devops/foundry/data, mode: "0775" }
-        - { path: /opt/vps-devops/foundry/data/container_cache, mode: "0775" }
+        - { path: /opt/vps-devops/foundry/data, mode: "0775", owner: "1000", group: "1000" }
+        - { path: /opt/vps-devops/foundry/data/container_cache, mode: "0775", owner: "1000", group: "1000" }
+
+    - name: Check Foundry container_cache directory owner
+      ansible.builtin.stat:
+        path: /opt/vps-devops/foundry/data/container_cache
+      register: foundry_cache_stat
+
+    - name: Fix Foundry data ownership for container user
+      ansible.builtin.command: chown -R 1000:1000 /opt/vps-devops/foundry/data
+      become: true
+      when: foundry_cache_stat.stat.exists and foundry_cache_stat.stat.uid != 1000
 
     - name: Create shared backups directory
       ansible.builtin.file:
@@ -95,15 +106,6 @@
         owner: "{{ deploy_user }}"
         group: "{{ deploy_group }}"
         mode: "0660"
-      become: true
-
-    - name: Create Foundry backup staging directory
-      ansible.builtin.file:
-        path: /opt/vps-devops/backups/foundry-staging
-        state: directory
-        owner: "{{ deploy_user }}"
-        group: "{{ deploy_group }}"
-        mode: "0700"
       become: true
 
     - name: Set Foundry Borg repo URL
@@ -172,7 +174,6 @@
         content: |
           export FOUNDRY_ROOT=/opt/vps-devops/foundry
           export FOUNDRY_DATA_DIR=/opt/vps-devops/foundry/data
-          export FOUNDRY_BACKUP_STAGING_DIR=/opt/vps-devops/backups/foundry-staging
           export FOUNDRY_CONTAINER={{ foundry_container_name }}
           export FOUNDRY_PUBLIC_HOSTNAME={{ foundry_public_hostname }}
           export FOUNDRY_ARCHIVE_PREFIX={{ foundry_archive_prefix }}

@@ -38,17 +38,11 @@ container_is_running() {
   [[ "$(docker inspect -f '{{.State.Running}}' "$FOUNDRY_CONTAINER" 2>/dev/null || true)" == "true" ]]
 }
 
-reset_staging_dir() {
-  mkdir -p "$FOUNDRY_BACKUP_STAGING_DIR"
-  find "$FOUNDRY_BACKUP_STAGING_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-}
-
 require_env BORG_REPO
 require_env BORG_PASSPHRASE
 require_env BORG_RSH
 require_env FOUNDRY_ROOT
 require_env FOUNDRY_DATA_DIR
-require_env FOUNDRY_BACKUP_STAGING_DIR
 require_env FOUNDRY_CONTAINER
 require_env FOUNDRY_PUBLIC_HOSTNAME
 require_env FOUNDRY_ARCHIVE_PREFIX
@@ -56,8 +50,6 @@ require_env FOUNDRY_ARCHIVE_PREFIX
 require_command borg
 require_command docker
 require_command flock
-require_command jq
-require_command rsync
 
 LOCK_FILE="${FOUNDRY_DATA_DIR}.lock"
 GLOBAL_LOCK_FILE="/opt/vps-devops/backups/.backup-job.lock"
@@ -74,18 +66,24 @@ mkdir -p "$(dirname "$GLOBAL_LOCK_FILE")"
 exec 8>"$GLOBAL_LOCK_FILE"
 flock 8
 
+CURRENT_UID="$(id -u)"
+CURRENT_GID="$(id -g)"
 restart_container=0
+chowned_to_current=0
 
 cleanup() {
   local rc=$?
+
+  if [[ $chowned_to_current -eq 1 ]]; then
+    log_info "Restoring ownership of ${FOUNDRY_DATA_DIR} to 1000:1000"
+    docker run --rm -v "${FOUNDRY_DATA_DIR}:/data" alpine chown -R 1000:1000 /data || true
+  fi
 
   if [[ $restart_container -eq 1 ]]; then
     log_info "Starting ${FOUNDRY_CONTAINER} again after backup..."
     docker start "$FOUNDRY_CONTAINER" >/dev/null || true
   fi
 
-  log_info "Cleaning staging directory ${FOUNDRY_BACKUP_STAGING_DIR}"
-  reset_staging_dir || true
   exit "$rc"
 }
 
@@ -97,10 +95,6 @@ if [[ ! -d "${FOUNDRY_DATA_DIR}/Config" && ! -d "${FOUNDRY_DATA_DIR}/Data" ]]; t
   exit 0
 fi
 
-log_step "Preparing staging directory ${FOUNDRY_BACKUP_STAGING_DIR}"
-reset_staging_dir
-mkdir -p "${FOUNDRY_BACKUP_STAGING_DIR}/data"
-
 log_step "Checking whether ${FOUNDRY_CONTAINER} is currently running"
 if container_is_running; then
   log_step "Stopping ${FOUNDRY_CONTAINER} for a consistent backup"
@@ -110,47 +104,28 @@ else
   log_info "${FOUNDRY_CONTAINER} is not running; continuing without stopping it first."
 fi
 
-log_step "Staging Foundry data directory"
-rsync -a --delete "${FOUNDRY_DATA_DIR}/" "${FOUNDRY_BACKUP_STAGING_DIR}/data/"
+log_step "Taking ownership of ${FOUNDRY_DATA_DIR} for backup user"
+docker run --rm -v "${FOUNDRY_DATA_DIR}:/data" alpine chown -R "${CURRENT_UID}:${CURRENT_GID}" /data
+chowned_to_current=1
 
-backup_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-hostname_value="$(hostname -f 2>/dev/null || hostname)"
-image_value="$(docker inspect -f '{{.Config.Image}}' "$FOUNDRY_CONTAINER" 2>/dev/null || printf 'unknown')"
-
-log_step "Writing backup manifest"
-jq -n \
-  --arg backup_timestamp "$backup_timestamp" \
-  --arg hostname "$hostname_value" \
-  --arg archive_prefix "$FOUNDRY_ARCHIVE_PREFIX" \
-  --arg public_hostname "$FOUNDRY_PUBLIC_HOSTNAME" \
-  --arg data_dir "$FOUNDRY_DATA_DIR" \
-  --arg container "$FOUNDRY_CONTAINER" \
-  --arg image "$image_value" \
-  '{
-    backup_timestamp: $backup_timestamp,
-    hostname: $hostname,
-    archive_prefix: $archive_prefix,
-    backup_mode: "bind-mount-copy-with-container-stopped",
-    public_hostname: $public_hostname,
-    data_dir: $data_dir,
-    container: $container,
-    image: $image
-  }' > "${FOUNDRY_BACKUP_STAGING_DIR}/manifest.json"
-
-if [[ $restart_container -eq 1 ]]; then
-  log_step "Starting ${FOUNDRY_CONTAINER} again before Borg archival"
-  docker start "$FOUNDRY_CONTAINER" >/dev/null
-  restart_container=0
-fi
-
-archive_name="${FOUNDRY_ARCHIVE_PREFIX}-${backup_timestamp}"
+archive_name="${FOUNDRY_ARCHIVE_PREFIX}-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 archive_name="${archive_name//:/-}"
 
 log_step "Creating Borg archive ${archive_name}"
 (
-  cd "$FOUNDRY_BACKUP_STAGING_DIR"
-  borg create --compression lz4 "${BORG_REPO}::${archive_name}" .
+  cd "$(dirname "$FOUNDRY_DATA_DIR")"
+  borg create --compression lz4 "${BORG_REPO}::${archive_name}" "$(basename "$FOUNDRY_DATA_DIR")"
 )
+
+log_step "Restoring ownership of ${FOUNDRY_DATA_DIR} to 1000:1000"
+docker run --rm -v "${FOUNDRY_DATA_DIR}:/data" alpine chown -R 1000:1000 /data
+chowned_to_current=0
+
+if [[ $restart_container -eq 1 ]]; then
+  log_step "Starting ${FOUNDRY_CONTAINER} after backup"
+  docker start "$FOUNDRY_CONTAINER" >/dev/null
+  restart_container=0
+fi
 
 log_step "Pruning Foundry Borg archives"
 borg prune \
