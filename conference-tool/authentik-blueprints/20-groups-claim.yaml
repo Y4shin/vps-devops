@@ -10,12 +10,15 @@ entries:
     attrs:
       name: conference-tool profile groups
       scope_name: profile
-      description: Emit only conference-* groups in the OIDC groups claim for conference-tool.
+      description: Emit profile claims and filtered conference-* groups for conference-tool.
       expression: |
         return {
+            "name": request.user.name,
+            "preferred_username": request.user.username,
+            "nickname": request.user.username,
             "groups": [
                 group.name
                 for group in request.user.ak_groups.all()
                 if group.name.startswith("conference-")
-            ]
+            ],
         }

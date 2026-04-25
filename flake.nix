@@ -24,6 +24,7 @@
             sshpass
             rsync
             yq-go
+            fzf
             lefthook
             (python3.withPackages (ps: [ ps.hcloud ps.jinja2 ps.pyyaml ]))
           ];

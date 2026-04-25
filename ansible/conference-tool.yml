@@ -56,6 +56,24 @@
         ct_webhook_secret: "{{ ct_n8n_secrets.WEBHOOK_SECRET | default('') }}"
       no_log: true
 
+    - name: Check whether mail secrets file exists
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/mail/.env.sops.yaml"
+      delegate_to: localhost
+      become: false
+      register: mail_secrets_file
+
+    - name: Load mail secrets for email integration
+      ansible.builtin.set_fact:
+        mail_secrets: "{{ lookup('community.sops.sops', repo_root + '/mail/.env.sops.yaml') | from_yaml }}"
+      when: mail_secrets_file.stat.exists
+      no_log: true
+
+    - name: Set mail domain fact
+      ansible.builtin.set_fact:
+        ct_mail_domain: "{{ mail_secrets.MAIL_DOMAIN | default(secrets.domain, true) }}"
+      when: mail_secrets_file.stat.exists
+
     - name: Validate conference-tool secrets
       ansible.builtin.assert:
         that:
@@ -319,12 +337,22 @@
           OAUTH_SCOPES=openid,profile,email
           OAUTH_GROUPS_CLAIM=groups
           OAUTH_USERNAME_CLAIMS=preferred_username,email,sub
-          OAUTH_FULL_NAME_CLAIMS=name,preferred_username,email
+          OAUTH_FULL_NAME_CLAIMS=name,preferred_username
           OAUTH_PROVISIONING_MODE=auto_create
           OAUTH_REQUIRED_GROUPS={{ conference_tool_access_group }}
           OAUTH_ADMIN_GROUP={{ conference_tool_admin_group }}
+          OAUTH_COMMITTEE_GROUP_PREFIX=conference-
           WEBHOOK_URLS=https://n8n.{{ secrets.domain }}/webhook/meeting-events
           WEBHOOK_SECRET={{ ct_webhook_secret | default('') }}
+          {% if mail_secrets_file.stat.exists %}
+          EMAIL_ENABLED=true
+          EMAIL_SMTP_HOST=mailserver
+          EMAIL_SMTP_PORT=25
+          EMAIL_USERNAME=
+          EMAIL_PASSWORD=
+          EMAIL_FROM_ADDRESS=conference@{{ ct_mail_domain }}
+          EMAIL_FROM_NAME=Open Caucus
+          {% endif %}
       no_log: true
 
     - name: Build conference-tool env hash

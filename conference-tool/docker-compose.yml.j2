@@ -7,6 +7,9 @@ services:
       - {{ secrets.proxy_dns_ip }}
     networks:
       - proxy
+{% if mail_secrets_file.stat.exists %}
+      - mail
+{% endif %}
       - internal
     volumes:
       - db_data:/data
@@ -21,6 +24,11 @@ networks:
   proxy:
     external: true
     name: proxy
+{% if mail_secrets_file.stat.exists %}
+  mail:
+    external: true
+    name: mail
+{% endif %}
   internal: {}
 
 volumes:

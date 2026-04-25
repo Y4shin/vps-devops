@@ -457,9 +457,18 @@ tasks:
       - python3 ./scripts/local/dns-sync.py restore --index {{.INDEX}} {{.CLI_ARGS}}
 
   secrets:edit:
-    desc: "Edit an encrypted secrets file. Usage: task secrets-edit FILE=secrets.sops.yaml"
+    desc: Interactively select and edit an encrypted secrets file
     cmds:
-      - sops {{.FILE}}
+      - |
+        FILE=$(find . -name '*.sops.yaml' -not -name '.sops.yaml' -o -name '*.sops' | sort | fzf --prompt="Edit secret file: ")
+        [ -n "$FILE" ] && sops "$FILE"
+
+  secrets:view:
+    desc: Interactively select and view a decrypted secrets file in a pager
+    cmds:
+      - |
+        FILE=$(find . -name '*.sops.yaml' -not -name '.sops.yaml' -o -name '*.sops' | sort | fzf --prompt="View secret file: ")
+        [ -n "$FILE" ] && sops -d "$FILE" | less
 
   secrets:extract:
     desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=secrets.sops.yaml TARGET='[\"domain\"]'"

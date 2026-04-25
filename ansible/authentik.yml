@@ -1020,7 +1020,7 @@
               - shell
               - -c
               - |
-                from authentik.core.models import Token, User, Group, UserTypes
+                from authentik.core.models import Token, TokenIntents, User, Group, UserTypes
 
                 user, _ = User.objects.get_or_create(
                     username="n8n-service-account",
@@ -1033,11 +1033,11 @@
                 )
                 admin_group = Group.objects.get(is_superuser=True, name="authentik Admins")
                 admin_group.users.add(user)
-                token, _ = Token.objects.get_or_create(
+                token, _ = Token.objects.update_or_create(
                     identifier="n8n-api-token",
                     defaults={
                         "user": user,
-                        "intent": "intent_api",
+                        "intent": TokenIntents.INTENT_API,
                         "description": "API token for n8n workflow automation",
                         "expiring": False,
                     }

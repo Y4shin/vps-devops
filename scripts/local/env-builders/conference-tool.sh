@@ -35,8 +35,16 @@ OAUTH_REDIRECT_URL=https://conference.${domain}/oauth/callback
 OAUTH_SCOPES=openid,profile,email
 OAUTH_GROUPS_CLAIM=groups
 OAUTH_USERNAME_CLAIMS=preferred_username,email,sub
-OAUTH_FULL_NAME_CLAIMS=name,preferred_username,email
+OAUTH_FULL_NAME_CLAIMS=name,preferred_username
 OAUTH_PROVISIONING_MODE=auto_create
 OAUTH_REQUIRED_GROUPS=conference-user
 OAUTH_ADMIN_GROUP=conference-admin
+OAUTH_COMMITTEE_GROUP_PREFIX=conference-
+EMAIL_ENABLED=true
+EMAIL_SMTP_HOST=localhost
+EMAIL_SMTP_PORT=1025
+EMAIL_USERNAME=
+EMAIL_PASSWORD=
+EMAIL_FROM_ADDRESS=conference@localhost
+EMAIL_FROM_NAME=Open Caucus
 EOF

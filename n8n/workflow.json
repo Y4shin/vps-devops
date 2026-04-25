@@ -80,7 +80,7 @@
           "conditions": [
             {
               "id": "auth-header-check",
-              "leftValue": "={{ !$json.webhook_secret || $json.headers['x-webhook-secret'] === $json.webhook_secret }}",
+              "leftValue": "={{ !$json.webhook_secret || $('Receive Event').item.json.headers['x-webhook-secret'] === $json.webhook_secret }}",
               "rightValue": true,
               "operator": { "type": "boolean", "operation": "equals" }
             }
@@ -99,7 +99,7 @@
     {
       "parameters": {
         "dataType": "string",
-        "value1": "={{ $json.body.event }}",
+        "value1": "={{ $('Receive Event').item.json.body.event }}",
         "rules": {
           "rules": [
             { "value2": "committee.oidc_group_added",  "output": 0 },
