@@ -5,11 +5,6 @@ env:
   SOPS_AGE_KEY_FILE: ./age.key
 
 tasks:
-  decrypt:
-    desc: Decrypt inventory
-    cmds:
-      - sops -d ansible/inventory.sops.yaml > ansible/inventory.yml
-
   lint:
     desc: Lint the Ansible code (ansible-lint, which also runs yamllint)
     cmds:
@@ -22,9 +17,7 @@ tasks:
 
   deploy:base:
     desc: Configure base host services via deploy user + inventory-configured root escalation
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/base.yml
 
   bootstrap:askpass:
@@ -34,23 +27,17 @@ tasks:
 
   deploy:
     desc: Deploy all services (Traefik + Authentik + Witness)
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/site.yml
 
   deploy:traefik:
     desc: Deploy Traefik only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/traefik.yml
 
   deploy:authentik:
     desc: Deploy Authentik only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
 
   authentik:logs:
@@ -66,30 +53,22 @@ tasks:
 
   deploy:witness:
     desc: Deploy Witness only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/witness.yml
 
   deploy:foundry:
     desc: Deploy Foundry VTT only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/foundry.yml
 
   deploy:conference-tool:
     desc: Deploy Conference Tool only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/conference-tool.yml
 
   deploy:n8n:
     desc: Deploy n8n only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/n8n.yml
 
   ssh:n8n:
@@ -100,9 +79,7 @@ tasks:
 
   deploy:mail:
     desc: Deploy outbound mail relay only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/mail.yml
 
   all:

@@ -240,8 +240,8 @@ def backup_to_desired(backup: dict) -> DesiredRRSet:
 # ── DKIM fetch ────────────────────────────────────────────────────────────────
 
 def fetch_dkim_records(repo_root: str, age_key: str) -> list[FlatRecord]:
-    mail_env = os.path.join(repo_root, "mail", ".env.sops.yaml")
-    if not os.path.exists(mail_env):
+    all_sops = os.path.join(repo_root, "ansible", "inventories", "prod", "group_vars", "all.sops.yaml")
+    if "sops_mail_secrets" not in sops_decrypt_yaml(all_sops, age_key):
         return []
 
     ssh_run = os.path.join(repo_root, "scripts", "local", "ssh-run.sh")
@@ -560,22 +560,22 @@ def setup(repo_root: str) -> tuple[str, str, str, Any, str]:
     Returns (token, domain, age_key, zone, backup_path).
     """
     age_key = os.path.join(repo_root, "age.key")
-    secrets = os.path.join(repo_root, "secrets.sops.yaml")
+    all_sops = os.path.join(repo_root, "ansible", "inventories", "prod", "group_vars", "all.sops.yaml")
 
     print(cyan("Reading secrets..."))
-    secrets_data = sops_decrypt_yaml(secrets, age_key)
+    secrets_data = sops_decrypt_yaml(all_sops, age_key).get("sops_secrets", {})
     jinja_vars: dict[str, Any] = {
         k: v for k, v in secrets_data.items()
-        if isinstance(v, (str, int, float)) and not k.startswith("sops")
+        if isinstance(v, (str, int, float))
     }
 
     required = ("hetzner_dns_api_token", "domain", "vps_ipv4", "vps_ipv6")
     missing  = [k for k in required if not jinja_vars.get(k)]
     if missing:
-        print(red("Missing required keys in secrets.sops.yaml:"), file=sys.stderr)
+        print(red("Missing required keys in group_vars/all.sops.yaml (sops_secrets):"), file=sys.stderr)
         for k in missing:
             print(red(f"  - {k}"), file=sys.stderr)
-        print("Add them with: task secrets:edit FILE=secrets.sops.yaml", file=sys.stderr)
+        print("Edit them in ansible/inventories/prod/group_vars/all.sops.yaml", file=sys.stderr)
         sys.exit(1)
 
     token  = str(jinja_vars["hetzner_dns_api_token"])

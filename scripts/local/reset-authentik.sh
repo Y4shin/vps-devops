@@ -7,8 +7,8 @@ age_key_file="${repo_root}/age.key"
 
 host="$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' \
-    "${repo_root}/ansible/inventory.sops.yaml"
+    sops -d --extract '["sops_connection"]["ansible_host"]' \
+    "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )"
 
 echo "This will permanently delete the current Authentik state on ${host}."

@@ -22,27 +22,28 @@ esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 age_key_file="${repo_root}/age.key"
-reporting_tool_secrets_file="${repo_root}/reporting-tool/.env.sops.yaml"
+all_sops="${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
+reporting_tool_secrets_file="sops_reporting_tool_secrets"
 
 extract_required_secret() {
   local path="$1"
-  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "$path" "$reporting_tool_secrets_file"
+  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "[\"$reporting_tool_secrets_file\"]$path" "$all_sops"
 }
 
 extract_optional_secret() {
   local path="$1"
-  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "$path" "$reporting_tool_secrets_file" 2>/dev/null || true
+  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "[\"$reporting_tool_secrets_file\"]$path" "$all_sops" 2>/dev/null || true
 }
 
 host="$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' \
-    "${repo_root}/ansible/inventory.sops.yaml"
+    sops -d --extract '["sops_connection"]["ansible_host"]' \
+    "$all_sops"
 )"
 
 domain="$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["domain"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["domain"]' "$all_sops"
 )"
 
 admin_auth_mode="$(extract_optional_secret '["ADMIN_AUTH_MODE"]')"
@@ -110,23 +111,23 @@ cat <<EOF
 LOG_PRETTY=false
 S3_ENDPOINT=$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["s3_endpoint"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["s3_endpoint"]' "$all_sops"
 )
 S3_BUCKET=$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["s3_bucket"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["s3_bucket"]' "$all_sops"
 )
 S3_REGION=$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["s3_region"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["s3_region"]' "$all_sops"
 )
 S3_ACCESS_KEY_ID=$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["S3_ACCESS_KEY_ID"]' "${repo_root}/reporting-tool/.env.sops.yaml"
+    sops -d --extract '["sops_reporting_tool_secrets"]["S3_ACCESS_KEY_ID"]' "$all_sops"
 )
 S3_SECRET_ACCESS_KEY=$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["S3_SECRET_ACCESS_KEY"]' "${repo_root}/reporting-tool/.env.sops.yaml"
+    sops -d --extract '["sops_reporting_tool_secrets"]["S3_SECRET_ACCESS_KEY"]' "$all_sops"
 )
 EOF
 } > "$witness_env_file"

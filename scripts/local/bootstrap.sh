@@ -22,16 +22,16 @@ trap cleanup EXIT
 
 host="$(
   SOPS_AGE_KEY_FILE="${repo_root}/age.key" \
-    sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' \
-    "${repo_root}/ansible/inventory.sops.yaml"
+    sops -d --extract '["sops_connection"]["ansible_host"]' \
+    "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )"
 host_escaped="$(printf '%s' "$host" | sed "s/'/''/g")"
 
 if [[ "$mode" == "password" ]]; then
   root_password="$(
     SOPS_AGE_KEY_FILE="${repo_root}/age.key" \
-      sops -d --extract '["bootstrap_root_password"]' \
-      "${repo_root}/secrets.sops.yaml"
+      sops -d --extract '["sops_secrets"]["bootstrap_root_password"]' \
+      "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
   )"
   root_password_escaped="$(printf '%s' "$root_password" | sed "s/'/''/g")"
   cat > "$bootstrap_inventory" <<EOF

@@ -4,19 +4,20 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 age_key_file="${repo_root}/age.key"
+all_sops="${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 
 extract() {
   local file="$1" path="$2"
-  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "$path" "$file"
+  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "[\"$file\"]$path" "$all_sops"
 }
 
 extract_optional() {
   local file="$1" path="$2"
-  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "$path" "$file" 2>/dev/null || true
+  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "[\"$file\"]$path" "$all_sops" 2>/dev/null || true
 }
 
-secrets_file="${repo_root}/secrets.sops.yaml"
-mail_file="${repo_root}/mail/.env.sops.yaml"
+secrets_file="sops_secrets"
+mail_file="sops_mail_secrets"
 
 domain="$(extract "$secrets_file" '["domain"]')"
 mail_domain="$(extract_optional "$mail_file" '["MAIL_DOMAIN"]')"
