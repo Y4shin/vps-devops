@@ -27,6 +27,10 @@ fi
 
 (
   cd "$repo_root"
+  # Force our ansible.cfg: the repo dir is often world-writable (WSL2), which makes
+  # Ansible silently ignore a cwd ansible.cfg unless ANSIBLE_CONFIG is set. Without
+  # it the vars plugins (community.sops) are not enabled and secrets don't resolve.
+  export ANSIBLE_CONFIG="${repo_root}/ansible.cfg"
   # Inventory is ansible/inventories/prod: plaintext hosts.yml + group_vars
   # (group_vars/all.sops.yaml is auto-decrypted by the community.sops vars plugin,
   # which inherits SOPS_AGE_KEY_FILE from this command's environment).

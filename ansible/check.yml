@@ -10,6 +10,7 @@
   vars:
     check_containers:
       - traefik-traefik-1
+      - traefik-coredns-1
       - authentik-server-1
       - authentik-worker-1
       - authentik-postgresql-1
@@ -17,7 +18,7 @@
       - foundry-foundry-1
       - conference-tool-app-1
       - n8n-n8n-1
-      - mailserver
+      - mail-mailserver-1
     check_endpoints:
       - "authentik.{{ secrets.domain }}"
       - "traefik.{{ secrets.domain }}"
@@ -55,7 +56,9 @@
       ansible.builtin.uri:
         url: "https://{{ item }}/"
         method: GET
-        status_code: [200, 301, 302, 401, 403]
+        # The check's purpose is reachability + a valid TLS cert; any HTTP response
+        # (incl. auth redirects / 404 from the forward-auth layer) satisfies that.
+        status_code: [200, 301, 302, 401, 403, 404]
         validate_certs: true
         follow_redirects: none
         timeout: 15
