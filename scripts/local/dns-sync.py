@@ -9,7 +9,7 @@ Desired state is collected from dns-records.yaml files:
 
 Each file's 'records' list is concatenated and sorted by (type, name).
 Every 'value' field is a Jinja2 template rendered against variables sourced
-from secrets.sops.yaml (all top-level string keys are exposed).
+from group_vars/all.sops.yaml (the sops_secrets dict; all its string keys are exposed).
 
 DKIM records are fetched live from the server if the mail service is deployed;
 they are injected automatically and do not need to appear in any dns-records.yaml.
@@ -27,7 +27,7 @@ Usage (via Taskfile):
   task dns:backup:restore INDEX=0  # restore backup by index (+ auto backup)
 
 Prerequisites:
-  - secrets.sops.yaml must contain: domain, hetzner_dns_api_token, vps_ipv4, vps_ipv6
+  - group_vars/all.sops.yaml sops_secrets must contain: domain, hetzner_dns_api_token, vps_ipv4, vps_ipv6
   - python3 with hcloud + jinja2 + pyyaml on PATH  (nix develop)
   - yq (go v4) on PATH                              (nix develop)
   - age.key present at repo root

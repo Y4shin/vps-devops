@@ -17,7 +17,7 @@
       - mail_secrets.MAIL_SUBMISSION_PASSWORD is defined
       - (mail_secrets.MAIL_SUBMISSION_PASSWORD | trim) != ""
     fail_msg: >-
-      mail/.env.sops.yaml must define MAIL_SUBMISSION_PASSWORD.
+      group_vars/all.sops.yaml (sops_mail_secrets) must define MAIL_SUBMISSION_PASSWORD.
   no_log: true
 
 - name: Create mail directories (deploy-owned)

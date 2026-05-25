@@ -3,26 +3,28 @@
 This is the practical rollout checklist for enabling the local outbound mail
 relay on the VPS and hooking Authentik up to it.
 
-## 1. Create the encrypted mail secrets file
+## 1. Add the encrypted mail secrets
 
-Use the plaintext template at `mail/.env.example.yaml` as your starting point
-and create `mail/.env.sops.yaml`.
+Add the `sops_mail_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml`.
 
 Minimum required content:
 
 ```yaml
-MAIL_SUBMISSION_PASSWORD: your-strong-random-password
+sops_mail_secrets:
+  MAIL_SUBMISSION_PASSWORD: your-strong-random-password
 ```
 
 Recommended explicit values for your setup:
 
 ```yaml
-MAIL_DOMAIN: pplattner.de
-MAIL_HOSTNAME: mail.pplattner.de
-MAIL_SUBMISSION_ACCOUNT: authentik@pplattner.de
-MAIL_POSTMASTER_ADDRESS: postmaster@pplattner.de
-MAIL_AUTHENTIK_FROM: authentik@pplattner.de
-MAIL_SUBMISSION_PASSWORD: your-strong-random-password
+sops_mail_secrets:
+  MAIL_DOMAIN: pplattner.de
+  MAIL_HOSTNAME: mail.pplattner.de
+  MAIL_SUBMISSION_ACCOUNT: authentik@pplattner.de
+  MAIL_POSTMASTER_ADDRESS: postmaster@pplattner.de
+  MAIL_AUTHENTIK_FROM: authentik@pplattner.de
+  MAIL_SUBMISSION_PASSWORD: your-strong-random-password
 ```
 
 ## 2. Create the DNS records
@@ -201,7 +203,7 @@ Run:
 task deploy:authentik
 ```
 
-When `mail/.env.sops.yaml` exists, the Authentik deploy will automatically
+When `sops_mail_secrets` is defined, the Authentik deploy will automatically
 inject SMTP settings so Authentik sends through the local relay.
 
 ## 7. Test email delivery

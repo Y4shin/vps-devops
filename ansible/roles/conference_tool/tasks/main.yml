@@ -26,7 +26,7 @@
       - conference_tool_secrets.borg_passphrase is defined
       - (conference_tool_secrets.borg_passphrase | trim) != ""
     fail_msg: >-
-      conference-tool/.env.sops.yaml must define SESSION_SECRET,
+      group_vars/all.sops.yaml (sops_conference_tool_secrets) must define SESSION_SECRET,
       OAUTH_CLIENT_SECRET, borg_path, and borg_passphrase.
   no_log: true
 

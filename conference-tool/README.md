@@ -7,7 +7,7 @@ This directory contains deployment-side assets for the conference tool
 
 ```bash
 # First time: fill in real secrets
-task secrets:edit FILE=conference-tool/.env.sops.yaml
+sops ansible/inventories/prod/group_vars/all.sops.yaml
 
 # Deploy Authentik first (renders the OIDC blueprint)
 task deploy:authentik
@@ -18,7 +18,8 @@ task deploy:conference-tool
 
 ## Secrets
 
-`conference-tool/.env.sops.yaml` must define:
+The `sops_conference_tool_secrets` dict in
+`ansible/inventories/prod/group_vars/all.sops.yaml` must define:
 
 | Key                  | Purpose                              |
 |----------------------|--------------------------------------|

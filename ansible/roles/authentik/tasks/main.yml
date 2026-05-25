@@ -29,7 +29,7 @@
       - authentik_secrets.borg_passphrase is defined
       - (authentik_secrets.borg_passphrase | trim) != ""
     fail_msg: >-
-      authentik/.env.sops.yaml must define AUTHENTIK_BOOTSTRAP_PASSWORD,
+      group_vars/all.sops.yaml (sops_authentik_secrets) must define AUTHENTIK_BOOTSTRAP_PASSWORD,
       PG_PASS, AUTHENTIK_SECRET_KEY, borg_path, and borg_passphrase.
   no_log: true
 
@@ -39,7 +39,7 @@
       - reporting_tool_secrets.ADMIN_OIDC_CLIENT_SECRET is defined
       - (reporting_tool_secrets.ADMIN_OIDC_CLIENT_SECRET | trim) != ""
     fail_msg: >-
-      reporting-tool/.env.sops.yaml must define ADMIN_OIDC_CLIENT_SECRET
+      group_vars/all.sops.yaml (sops_reporting_tool_secrets) must define ADMIN_OIDC_CLIENT_SECRET
       so Authentik can render the Witness admin OIDC application.
   no_log: true
 
@@ -49,7 +49,7 @@
       - conference_tool_secrets.OAUTH_CLIENT_SECRET is defined
       - (conference_tool_secrets.OAUTH_CLIENT_SECRET | trim) != ""
     fail_msg: >-
-      conference-tool/.env.sops.yaml must define OAUTH_CLIENT_SECRET
+      group_vars/all.sops.yaml (sops_conference_tool_secrets) must define OAUTH_CLIENT_SECRET
       so Authentik can render the conference-tool OIDC application.
   when: conference_tool_enabled
   no_log: true

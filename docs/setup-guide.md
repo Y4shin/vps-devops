@@ -69,28 +69,28 @@ The initial bootstrap playbook now does only the first handoff:
 it creates the `deploy` user and installs its SSH key so the rest of the setup
 can happen over the normal deploy-user path.
 
-### 2a. Configure the inventory
+### 2a. Configure the connection
 
-The server IP is stored encrypted in [`ansible/inventory.sops.yaml`](../ansible/inventory.sops.yaml).
+The server IP is stored encrypted in the `sops_connection` dict inside
+[`ansible/inventories/prod/group_vars/all.sops.yaml`](../ansible/inventories/prod/group_vars/all.sops.yaml).
 To update it:
 
 ```bash
-task secrets:edit FILE=ansible/inventory.sops.yaml
+sops ansible/inventories/prod/group_vars/all.sops.yaml
 ```
 
-This inventory file should also contain the privilege-escalation settings used
-by the deploy-time playbooks:
+That `sops_connection` dict should also contain the privilege-escalation
+settings used by the deploy-time playbooks:
 
 ```yaml
-all:
-  hosts:
-    vps:
-      ansible_host: ...
-      ansible_user: deploy
-      ansible_become_method: su
-      ansible_become_user: root
-      ansible_become_password: ...
+sops_connection:
+  ansible_host: ...
+  ansible_become_password: ...
 ```
+
+The remaining connection settings (`ansible_user: deploy`,
+`ansible_become_method: su`, `ansible_become_user: root`) are configured by the
+inventory itself.
 
 ### 2b. Set the deploy public key
 
@@ -127,7 +127,7 @@ task ssh
 ### 2e. Apply the base host configuration
 
 This step connects as `deploy`, then escalates to `root` using the privilege
-escalation settings stored in the encrypted inventory. It applies packages, Docker, firewall rules, SSH
+escalation settings stored in the encrypted `sops_connection` dict. It applies packages, Docker, firewall rules, SSH
 hardening, fail2ban, unattended upgrades, and the host directories used by the
 deploy playbooks.
 
@@ -177,24 +177,37 @@ setup, it is no longer used and can be removed.
 
 ### 3c. Encrypt app secrets
 
-```bash
-cat > /tmp/app.env.yaml <<EOF
-SESSION_SECRET: $(openssl rand -hex 32)
-ADMIN_AUTH_MODE: oidc
-ADMIN_OIDC_CLIENT_SECRET: $(openssl rand -hex 32)
-S3_ACCESS_KEY_ID: your-object-storage-access-key
-S3_SECRET_ACCESS_KEY: your-object-storage-secret-key
-borg_path: your-borg-repo-path
-borg_passphrase: $(openssl rand -base64 32)
-EOF
+Add the `sops_reporting_tool_secrets` dict to
+[`ansible/inventories/prod/group_vars/all.sops.yaml`](../ansible/inventories/prod/group_vars/all.sops.yaml)
+with at least:
 
-SOPS_AGE_KEY_FILE=./age.key sops -e /tmp/app.env.yaml > reporting-tool/.env.sops.yaml
-rm /tmp/app.env.yaml
+```yaml
+sops_reporting_tool_secrets:
+  SESSION_SECRET: a-long-random-secret
+  ADMIN_AUTH_MODE: oidc
+  ADMIN_OIDC_CLIENT_SECRET: a-long-random-secret
+  S3_ACCESS_KEY_ID: your-object-storage-access-key
+  S3_SECRET_ACCESS_KEY: your-object-storage-secret-key
+  borg_path: your-borg-repo-path
+  borg_passphrase: a-long-random-passphrase
+```
+
+Edit the file with:
+
+```bash
+sops ansible/inventories/prod/group_vars/all.sops.yaml
+```
+
+Generate the random secrets locally, for example:
+
+```bash
+openssl rand -hex 32     # SESSION_SECRET / ADMIN_OIDC_CLIENT_SECRET example
+openssl rand -base64 32  # borg_passphrase example
 ```
 
 Witness runtime values such as `ORIGIN`, `DATABASE_URL`, and the S3 endpoint,
-bucket, and region are injected by Ansible from `secrets.sops.yaml` and the
-playbook itself. They do not need to be stored in `reporting-tool/.env.sops.yaml`.
+bucket, and region are injected by Ansible from `sops_secrets` and the
+playbook itself. They do not need to be stored in `sops_reporting_tool_secrets`.
 
 Witness admin login is now intended to use Authentik OIDC instead of a local
 `ADMIN_PASSWORD`.
@@ -209,39 +222,45 @@ Access to the Authentik application is restricted to members of
 
 The Witness deploy injects `ADMIN_OIDC_ALLOWED_GROUPS=reporting-tool-admin-access`
 at runtime, so admin membership is managed centrally in Authentik instead of by
-per-user email or subject lists in `reporting-tool/.env.sops.yaml`.
+per-user email or subject lists in `sops_reporting_tool_secrets`.
 
 ### 3d. Encrypt global infrastructure secrets
 
-Create or update [`secrets.sops.yaml`](../secrets.sops.yaml) with at least:
+Add or update the `sops_secrets` dict in
+[`ansible/inventories/prod/group_vars/all.sops.yaml`](../ansible/inventories/prod/group_vars/all.sops.yaml)
+with at least:
 
 ```yaml
-domain: your-domain.example.com
-letsencrypt_email: ops@your-domain.example.com
-s3_endpoint: https://your-object-storage-endpoint
-s3_bucket: your-object-storage-bucket
-s3_region: auto
-borg_host: your-borg-host
-borg_user: your-borg-user
+sops_secrets:
+  domain: your-domain.example.com
+  letsencrypt_email: ops@your-domain.example.com
+  s3_endpoint: https://your-object-storage-endpoint
+  s3_bucket: your-object-storage-bucket
+  s3_region: auto
+  borg_host: your-borg-host
+  borg_user: your-borg-user
 ```
 
 Edit it with:
 
 ```bash
-task secrets:edit FILE=secrets.sops.yaml
+sops ansible/inventories/prod/group_vars/all.sops.yaml
 ```
 
 ### 3e. Create Authentik secrets
 
-The default `task deploy` path includes Authentik, so create
-[`authentik/.env.sops.yaml`](../authentik/.env.sops.yaml) with at least:
+The default `task deploy` path includes Authentik, so add the
+`sops_authentik_secrets` dict to
+[`ansible/inventories/prod/group_vars/all.sops.yaml`](../ansible/inventories/prod/group_vars/all.sops.yaml)
+with at least:
 
 ```yaml
-PG_PASS: your-strong-postgres-password
-AUTHENTIK_SECRET_KEY: your-long-random-authentik-secret
-AUTHENTIK_BOOTSTRAP_PASSWORD: your-strong-bootstrap-password
-borg_path: your-authentik-borg-repo-path
-borg_passphrase: your-authentik-borg-passphrase
+sops_authentik_secrets:
+  PG_PASS: your-strong-postgres-password
+  AUTHENTIK_SECRET_KEY: your-long-random-authentik-secret
+  AUTHENTIK_BOOTSTRAP_PASSWORD: your-strong-bootstrap-password
+  borg_path: your-authentik-borg-repo-path
+  borg_passphrase: your-authentik-borg-passphrase
 ```
 
 Use a different `borg_path` than Witness so Authentik gets its own Borg repo on
@@ -257,7 +276,7 @@ Optional keys:
 Edit it with:
 
 ```bash
-task secrets:edit FILE=authentik/.env.sops.yaml
+sops ansible/inventories/prod/group_vars/all.sops.yaml
 ```
 
 Generate the two persistent secrets once on your local machine and keep them in
@@ -276,20 +295,24 @@ removes the file again afterward.
 ### 3f. Optional: create outbound mail relay secrets
 
 If you want Authentik to send email through a local outbound relay on this VPS,
-create [`mail/.env.sops.yaml`](../mail/.env.sops.yaml) with at least:
+add the `sops_mail_secrets` dict to
+[`ansible/inventories/prod/group_vars/all.sops.yaml`](../ansible/inventories/prod/group_vars/all.sops.yaml)
+with at least:
 
 ```yaml
-MAIL_SUBMISSION_PASSWORD: your-strong-random-password
+sops_mail_secrets:
+  MAIL_SUBMISSION_PASSWORD: your-strong-random-password
 ```
 
 Optional values:
 
 ```yaml
-MAIL_DOMAIN: your-domain.example.com
-MAIL_HOSTNAME: mail.your-domain.example.com
-MAIL_SUBMISSION_ACCOUNT: authentik@your-domain.example.com
-MAIL_POSTMASTER_ADDRESS: postmaster@your-domain.example.com
-MAIL_AUTHENTIK_FROM: authentik@your-domain.example.com
+sops_mail_secrets:
+  MAIL_DOMAIN: your-domain.example.com
+  MAIL_HOSTNAME: mail.your-domain.example.com
+  MAIL_SUBMISSION_ACCOUNT: authentik@your-domain.example.com
+  MAIL_POSTMASTER_ADDRESS: postmaster@your-domain.example.com
+  MAIL_AUTHENTIK_FROM: authentik@your-domain.example.com
 ```
 
 Deploy it later with:
@@ -307,7 +330,7 @@ To update it to a newer commit see the day-to-day operations section below.
 ### 3h. Commit and push
 
 ```bash
-git add .sops.yaml secrets.sops.yaml authentik/.env.sops.yaml reporting-tool/.env.sops.yaml reporting-tool/app
+git add .sops.yaml ansible/inventories/prod/group_vars/all.sops.yaml reporting-tool/app
 git commit -m "chore: initial repo setup with encrypted secrets and app submodule"
 git push
 ```
@@ -368,9 +391,12 @@ task deploy
 
 ### Update encrypted secrets
 
+All secrets live in a single SOPS-encrypted file. Edit the relevant
+`sops_<svc>_secrets` dict inside it:
+
 ```bash
-SOPS_AGE_KEY_FILE=./age.key sops reporting-tool/.env.sops.yaml
-git add reporting-tool/.env.sops.yaml
+SOPS_AGE_KEY_FILE=./age.key sops ansible/inventories/prod/group_vars/all.sops.yaml
+git add ansible/inventories/prod/group_vars/all.sops.yaml
 git commit -m "chore: update app secrets"
 git push
 task deploy

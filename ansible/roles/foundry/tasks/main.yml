@@ -24,7 +24,7 @@
           and (foundry_secrets.FOUNDRY_PASSWORD | trim) != ""
         )
     fail_msg: >-
-      foundry/.env.sops.yaml must define FOUNDRY_ADMIN_KEY, borg_path,
+      group_vars/all.sops.yaml (sops_foundry_secrets) must define FOUNDRY_ADMIN_KEY, borg_path,
       borg_passphrase, and either FOUNDRY_RELEASE_URL or both
       FOUNDRY_USERNAME and FOUNDRY_PASSWORD.
   no_log: true

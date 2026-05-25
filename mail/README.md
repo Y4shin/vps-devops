@@ -9,10 +9,13 @@ public mailbox stack.
 
 ## Required secrets
 
-Create `mail/.env.sops.yaml` before the first deploy with at least:
+Add the `sops_mail_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml` before the first deploy with
+at least:
 
 ```yaml
-MAIL_SUBMISSION_PASSWORD: a-strong-random-password
+sops_mail_secrets:
+  MAIL_SUBMISSION_PASSWORD: a-strong-random-password
 ```
 
 Optional keys:
@@ -25,7 +28,7 @@ Optional keys:
 
 Defaults:
 
-- `MAIL_DOMAIN` defaults to `domain` from `secrets.sops.yaml`
+- `MAIL_DOMAIN` defaults to `sops_secrets.domain`
 - `MAIL_HOSTNAME` defaults to `mail.<MAIL_DOMAIN>`
 - `MAIL_SUBMISSION_ACCOUNT` defaults to `authentik@<MAIL_DOMAIN>`
 - `MAIL_POSTMASTER_ADDRESS` defaults to `postmaster@<MAIL_DOMAIN>`

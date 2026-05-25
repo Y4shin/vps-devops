@@ -15,7 +15,7 @@
       - n8n_secrets.WEBHOOK_SECRET is defined
       - (n8n_secrets.WEBHOOK_SECRET | trim) != ""
     fail_msg: >-
-      n8n/.env.sops.yaml must define N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL,
+      group_vars/all.sops.yaml (sops_n8n_secrets) must define N8N_ENCRYPTION_KEY, N8N_OWNER_EMAIL,
       N8N_OWNER_PASSWORD, and WEBHOOK_SECRET.
   no_log: true
 

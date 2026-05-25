@@ -451,7 +451,7 @@ tasks:
         [ -n "$FILE" ] && sops -d "$FILE" | less
 
   secrets:extract:
-    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=secrets.sops.yaml TARGET='[\"domain\"]'"
+    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=ansible/inventories/prod/group_vars/all.sops.yaml TARGET='[\"sops_secrets\"][\"domain\"]'"
     preconditions:
       - sh: test -n "{{.FILE}}"
         msg: secrets:extract requires FILE=...

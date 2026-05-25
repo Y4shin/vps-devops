@@ -4,20 +4,24 @@ This directory contains the repo-managed deployment template for Foundry VTT.
 
 ## Required encrypted secrets
 
-Create `foundry/.env.sops.yaml` before the first deploy with:
+Add the `sops_foundry_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml` before the first deploy
+with:
 
 ```yaml
-FOUNDRY_USERNAME: your-foundry-account-email-or-username
-FOUNDRY_PASSWORD: your-foundry-account-password
-FOUNDRY_ADMIN_KEY: your-foundry-admin-key
-borg_path: your-foundry-borg-repo-path
-borg_passphrase: your-foundry-borg-passphrase
+sops_foundry_secrets:
+  FOUNDRY_USERNAME: your-foundry-account-email-or-username
+  FOUNDRY_PASSWORD: your-foundry-account-password
+  FOUNDRY_ADMIN_KEY: your-foundry-admin-key
+  borg_path: your-foundry-borg-repo-path
+  borg_passphrase: your-foundry-borg-passphrase
 ```
 
 Instead of `FOUNDRY_USERNAME` and `FOUNDRY_PASSWORD`, you may provide:
 
 ```yaml
-FOUNDRY_RELEASE_URL: your-timed-foundry-download-url
+sops_foundry_secrets:
+  FOUNDRY_RELEASE_URL: your-timed-foundry-download-url
 ```
 
 Optional keys supported by the playbook:

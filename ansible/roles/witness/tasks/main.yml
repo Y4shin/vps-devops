@@ -39,7 +39,7 @@
           and (app_secrets.ADMIN_OIDC_CLIENT_SECRET | trim) != ""
         )
     fail_msg: >-
-      reporting-tool/.env.sops.yaml must define SESSION_SECRET,
+      group_vars/all.sops.yaml (sops_reporting_tool_secrets) must define SESSION_SECRET,
       S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, borg_path, borg_passphrase,
       and either ADMIN_PASSWORD for password mode or
       ADMIN_OIDC_CLIENT_SECRET for oidc mode.
