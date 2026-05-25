@@ -20,7 +20,7 @@
     mode: "0660"
   become: true
 
-- name: Create {{ backup_service_slug }} backup staging directory
+- name: Create backup staging directory for {{ backup_service_slug }}
   ansible.builtin.file:
     path: "/opt/vps-devops/backups/{{ backup_staging_subdir }}"
     state: directory
@@ -30,7 +30,7 @@
   become: true
   when: backup_staging_subdir | length > 0
 
-- name: Write {{ backup_service_slug }} backup environment file
+- name: Write backup environment file for {{ backup_service_slug }}
   ansible.builtin.copy:
     dest: "{{ backup_env_dest }}"
     content: "{{ backup_env_content }}"
@@ -38,13 +38,13 @@
   no_log: true
   when: backup_env_content | length > 0
 
-- name: Copy {{ backup_service_slug }} backup script
+- name: Copy backup script for {{ backup_service_slug }}
   ansible.builtin.copy:
     src: "{{ backup_script_src }}"
     dest: "/opt/vps-devops/scripts/backup-{{ backup_service_slug }}.sh"
     mode: "0750"
 
-- name: Copy {{ backup_service_slug }} restore script
+- name: Copy restore script for {{ backup_service_slug }}
   ansible.builtin.copy:
     src: "{{ backup_restore_script_src }}"
     dest: "/opt/vps-devops/scripts/restore-{{ backup_service_slug }}.sh"
@@ -58,7 +58,7 @@
   loop: "{{ backup_extra_scripts }}"
   when: backup_extra_scripts | length > 0
 
-- name: Install {{ backup_service_slug }} backup systemd service
+- name: Install backup systemd service for {{ backup_service_slug }}
   ansible.builtin.copy:
     dest: "/etc/systemd/system/{{ backup_service_slug }}-backup.service"
     owner: root
@@ -80,7 +80,7 @@
   become: true
   register: backup_service_unit
 
-- name: Install {{ backup_service_slug }} backup systemd timer
+- name: Install backup systemd timer for {{ backup_service_slug }}
   ansible.builtin.copy:
     dest: "/etc/systemd/system/{{ backup_service_slug }}-backup.timer"
     owner: root
@@ -100,13 +100,13 @@
   become: true
   register: backup_timer_unit
 
-- name: Reload systemd after {{ backup_service_slug }} backup unit changes
+- name: Reload systemd after backup unit changes for {{ backup_service_slug }}
   ansible.builtin.systemd_service:
     daemon_reload: true
   become: true
   when: backup_service_unit.changed or backup_timer_unit.changed
 
-- name: Enable and start {{ backup_service_slug }} backup timer
+- name: Enable and start backup timer for {{ backup_service_slug }}
   ansible.builtin.systemd_service:
     name: "{{ backup_service_slug }}-backup.timer"
     enabled: true

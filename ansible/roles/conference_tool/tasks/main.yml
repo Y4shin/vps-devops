@@ -105,6 +105,7 @@
 - name: Backup conference-tool before deploy
   ansible.builtin.command:
     cmd: bash /opt/vps-devops/scripts/backup-conference-tool.sh
+  changed_when: true
   when: ct_image_changed and ct_last_digest != ""
 
 - name: Build conference-tool env content

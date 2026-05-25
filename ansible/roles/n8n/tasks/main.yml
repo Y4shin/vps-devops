@@ -133,6 +133,7 @@
       with open('/opt/vps-devops/n8n/workflow-deploy.json', 'w') as f:
           json.dump(wf, f)
       PYEOF
+  changed_when: false
   no_log: true
 
 - name: Deploy workflow via n8n API

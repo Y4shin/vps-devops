@@ -20,7 +20,7 @@
     state: present
   when: ansible_facts['distribution'] == 'Ubuntu'
 
-- name: apt update + full-upgrade
+- name: Apt update and full-upgrade
   ansible.builtin.apt:
     update_cache: true
     upgrade: full
@@ -107,8 +107,8 @@
     proto: tcp
     comment: "{{ item.comment }}"
   loop:
-    - { port: "22",  comment: "SSH" }
-    - { port: "80",  comment: "HTTP (Traefik)" }
+    - { port: "22", comment: "SSH" }
+    - { port: "80", comment: "HTTP (Traefik)" }
     - { port: "443", comment: "HTTPS (Traefik)" }
 
 - name: Enable UFW

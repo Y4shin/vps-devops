@@ -10,6 +10,11 @@ tasks:
     cmds:
       - sops -d ansible/inventory.sops.yaml > ansible/inventory.yml
 
+  lint:
+    desc: Lint the Ansible code (ansible-lint, which also runs yamllint)
+    cmds:
+      - ansible-lint ansible/
+
   bootstrap:
     desc: Minimal first-contact bootstrap (create deploy user + SSH access)
     cmds:

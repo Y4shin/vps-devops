@@ -28,6 +28,8 @@
             lefthook
             hcloud
             opentofu
+            ansible-lint
+            yamllint
             (python3.withPackages (ps: [ ps.hcloud ps.jinja2 ps.pyyaml ]))
           ];
 

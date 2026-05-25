@@ -1,0 +1,79 @@
+---
+# Read-only health check (no changes). Run:
+#   ansible-playbook -i ansible/inventories/prod ansible/check.yml
+# Verifies containers are running, public HTTPS endpoints respond with a valid
+# certificate, and the backup timers are armed.
+- name: Health checks
+  hosts: vps
+  gather_facts: false
+
+  vars:
+    check_containers:
+      - traefik-traefik-1
+      - authentik-server-1
+      - authentik-worker-1
+      - authentik-postgresql-1
+      - reporting-tool-app-1
+      - foundry-foundry-1
+      - conference-tool-app-1
+      - n8n-n8n-1
+      - mailserver
+    check_endpoints:
+      - "authentik.{{ secrets.domain }}"
+      - "traefik.{{ secrets.domain }}"
+      - "witness.{{ secrets.domain }}"
+      - "foundry.{{ secrets.domain }}"
+      - "conference.{{ secrets.domain }}"
+      - "n8n.{{ secrets.domain }}"
+    check_backup_timers:
+      - authentik-backup.timer
+      - reporting-tool-backup.timer
+      - foundry-backup.timer
+      - conference-tool-backup.timer
+
+  tasks:
+    - name: Gather container info
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop: "{{ check_containers }}"
+      register: check_container_info
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Assert expected containers are running
+      ansible.builtin.assert:
+        that:
+          - item.exists
+          - item.container.State.Running | default(false)
+        fail_msg: "Container {{ item.item }} is not running."
+        quiet: true
+      loop: "{{ check_container_info.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Probe public HTTPS endpoints (reachability + valid certificate)
+      ansible.builtin.uri:
+        url: "https://{{ item }}/"
+        method: GET
+        status_code: [200, 301, 302, 401, 403]
+        validate_certs: true
+        follow_redirects: none
+        timeout: 15
+      delegate_to: localhost
+      become: false
+      loop: "{{ check_endpoints }}"
+      loop_control:
+        label: "{{ item }}"
+
+    # systemctl is-active is a read-only status query; the systemd module manages
+    # state, which is not what we want here.
+    - name: Assert backup timers are active  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: "systemctl is-active {{ item }}"
+      register: check_timer_active
+      changed_when: false
+      failed_when: (check_timer_active.stdout | trim) != "active"
+      become: true
+      loop: "{{ check_backup_timers }}"
+      loop_control:
+        label: "{{ item }}"

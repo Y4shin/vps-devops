@@ -2,4 +2,4 @@
 - name: Deploy Conference Tool
   hosts: vps
   roles:
-    - conference-tool
+    - conference_tool

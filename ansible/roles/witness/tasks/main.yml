@@ -81,6 +81,7 @@
   ansible.builtin.command:
     cmd: /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
   when: awscli_installed.rc != 0
+  changed_when: true
   become: true
 
 - name: Remove extracted AWS CLI bundle
@@ -173,6 +174,7 @@
 - name: Backup reporting-tool before deploy
   ansible.builtin.command:
     cmd: bash /opt/vps-devops/scripts/backup-reporting-tool.sh
+  changed_when: true
   when: witness_image_changed and last_digest != ""
 
 - name: Build witness env content

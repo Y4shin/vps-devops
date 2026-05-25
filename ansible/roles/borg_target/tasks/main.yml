@@ -31,7 +31,7 @@
   become: false
   changed_when: false
 
-- name: Write {{ borg_service_slug }} Borg environment file
+- name: Write Borg environment file for {{ borg_service_slug }}
   ansible.builtin.copy:
     dest: "/opt/vps-devops/scripts/{{ borg_service_slug }}-borg-env"
     content: |
@@ -41,7 +41,7 @@
     mode: "0600"
   no_log: true
 
-- name: Check if {{ borg_service_slug }} Borg repo is already initialized
+- name: Check whether Borg repo is initialized for {{ borg_service_slug }}
   ansible.builtin.command:
     cmd: borg info {{ borg_repo }}
   environment:
@@ -52,11 +52,12 @@
   changed_when: false
   no_log: true
 
-- name: Initialize {{ borg_service_slug }} Borg repository
+- name: Initialize Borg repository for {{ borg_service_slug }}
   ansible.builtin.command:
     cmd: borg init --encryption=repokey {{ borg_repo }}
   environment:
     BORG_PASSPHRASE: "{{ borg_secrets.borg_passphrase }}"
     BORG_RSH: "{{ borg_rsh }}"
   when: borg_info.rc != 0
+  changed_when: true
   no_log: true

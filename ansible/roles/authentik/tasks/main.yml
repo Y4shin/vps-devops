@@ -247,6 +247,7 @@
     done
   args:
     executable: /bin/bash
+  changed_when: true
   when:
     - authentik_legacy_certs_dir.stat.exists
       or authentik_legacy_templates_dir.stat.exists
@@ -270,6 +271,7 @@
     done
   args:
     executable: /bin/bash
+  changed_when: true
   when: (authentik_legacy_media_layout.stdout | trim) == "legacy"
 
 - name: Move legacy Authentik certs directory into data/certs
@@ -285,6 +287,7 @@
     rmdir "$src" || true
   args:
     executable: /bin/bash
+  changed_when: true
   when: authentik_legacy_certs_dir.stat.exists
 
 - name: Move legacy Authentik templates directory into data/custom-templates
@@ -300,6 +303,7 @@
     rmdir "$src" || true
   args:
     executable: /bin/bash
+  changed_when: true
   when: authentik_legacy_templates_dir.stat.exists
 
 - name: Migrate legacy Authentik PostgreSQL volume into data/postgresql
@@ -316,6 +320,7 @@
     fi
   args:
     executable: /bin/bash
+  changed_when: true
   when:
     - authentik_legacy_db_volume.rc == 0
     - not authentik_pgdata_version_file.stat.exists

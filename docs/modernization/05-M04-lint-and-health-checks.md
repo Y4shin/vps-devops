@@ -63,3 +63,38 @@ Revert the commit.
 - `.ansible-lint` + `.yamllint` + `task lint` in place; lint clean.
 - `check.yml` exists and reports health read-only.
 - Lint wired into lefthook pre-push.
+
+## Implementation notes (as built, 2026-05-25)
+
+- **Tooling:** added `ansible-lint` + `yamllint` to `flake.nix`. `task lint` runs
+  `ansible-lint ansible/` (which runs yamllint internally); scoping to `ansible/`
+  keeps root-level non-Ansible yaml out of scope. Wired into **lefthook
+  pre-push** (not pre-commit) — requires the nix devshell to be active.
+- **Result: 0 failures at the `production` profile** across 46 files.
+- **Config choices:** `.ansible-lint` skips `var-naming[no-role-prefix]` (the repo
+  uses shared/generic variable names by design — `secrets`, `app_secrets`, generic
+  helper-role params — so role-prefixing would force ~80 churny renames and fight
+  the design). Excludes `collections/`, `test/`, `**/*.sops.*`, `dns-records.yaml`,
+  `**/authentik-blueprints/`. `.yamllint` disables `line-length` (long Traefik
+  forwardauth labels) and sets `octal-values` forbid flags true (ansible-lint
+  requires it; all our `mode:` values are quoted strings so it never triggers).
+- **Findings fixed (the refactor surfaced these):** renamed role
+  `conference-tool` → `conference_tool` (`role-name`: hyphens disallowed); named
+  the `import_playbook` entries in `site.yml`/`all.yml` (`name[play]`); moved the
+  jinja `{{ ..._service_slug }}` to the **end** of helper-role task names
+  (`name[template]`); added `changed_when` to command/shell tasks
+  (`no-changed-when` — true for migrations/backups/installs/borg-init, false for
+  the n8n workflow-patch transform); capitalised one base task name and fixed
+  comma spacing in the base UFW loop.
+- **check.yml** asserts: expected containers running
+  (`community.docker.docker_container_info`), public HTTPS endpoints respond with
+  a valid certificate (`uri` with `validate_certs: true`, delegated to localhost),
+  and the four backup `.timer`s are active (`systemctl is-active`, with a
+  justified `# noqa: command-instead-of-module` since it's a read-only query).
+- **Flagged, not changed:** a stray tracked `foundry-compose.yml` at the repo root
+  is not referenced by the foundry role (which uses
+  `roles/foundry/templates/docker-compose.yml.j2`) — probable cruft, left for the
+  user to confirm. ansible-lint emits a cosmetic dual-collection-path warning
+  (`~/.ansible` 5.1.0 vs `./collections` 5.2.0); real runs use `./collections`.
+- `check.yml` has not yet been run against prod (that happens in M05); it passes
+  `--syntax-check` and lint.

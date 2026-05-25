@@ -55,6 +55,7 @@
 - name: Fix Foundry data ownership for container user
   ansible.builtin.command: chown -R 1000:1000 /opt/vps-devops/foundry/data
   become: true
+  changed_when: true
   when: foundry_cache_stat.stat.exists and foundry_cache_stat.stat.uid != 1000
 
 - name: Set up Borg target for Foundry
@@ -154,6 +155,7 @@
 - name: Back up Foundry before reconfiguration
   ansible.builtin.command:
     cmd: bash /opt/vps-devops/scripts/backup-foundry.sh
+  changed_when: true
   when: foundry_needs_recreate and foundry_options_file.stat.exists
 
 - name: Deploy Foundry with temporary .env
