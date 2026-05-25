@@ -26,6 +26,8 @@
             yq-go
             fzf
             lefthook
+            hcloud
+            opentofu
             (python3.withPackages (ps: [ ps.hcloud ps.jinja2 ps.pyyaml ]))
           ];
 
