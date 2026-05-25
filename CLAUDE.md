@@ -73,14 +73,27 @@ task ssh:scripts
 
 ## Secrets
 
+All app/infra secrets are consolidated in one SOPS file, auto-decrypted by the
+`community.sops` Ansible vars plugin (at inventory stage) and read by the local
+helper scripts:
+
 - Age key: `./age.key`
-- Global infra secrets: `secrets.sops.yaml`
-- Authentik secrets: `authentik/.env.sops.yaml`
-- Witness secrets: `reporting-tool/.env.sops.yaml`
+- All secrets: `ansible/inventories/prod/group_vars/all.sops.yaml` — namespaced
+  top-level dicts: `sops_secrets` (global infra), `sops_authentik_secrets`,
+  `sops_reporting_tool_secrets` (Witness), `sops_foundry_secrets`,
+  `sops_conference_tool_secrets`, `sops_n8n_secrets`, `sops_mail_secrets`,
+  `sops_connection` (`ansible_host`, `ansible_become_password`).
+- Plaintext indirection (logical names → `sops_*` sources):
+  `ansible/inventories/prod/group_vars/all.yml`.
 - Deploy SSH key: `deploy_ssh_private_key.sops`
 - Borg SSH key: `borg/ssh_key.sops`
+- DNS backups: `dns-backups.sops.yaml`
 
+Edit with `sops ansible/inventories/prod/group_vars/all.sops.yaml`.
 Never commit decrypted material.
+
+> Note: `traefik/.env.sops.yaml` is a deprecated leftover (old basic-auth
+> dashboard creds, now behind Authentik forward-auth); not used by any code.
 
 ## Important File Paths
 

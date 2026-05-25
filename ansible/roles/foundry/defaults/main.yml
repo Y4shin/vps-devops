@@ -1,0 +1,5 @@
+---
+foundry_container_name: "foundry-foundry-1"
+foundry_archive_prefix: "foundry"
+foundry_image: "felddy/foundryvtt:13.351"
+foundry_default_public_hostname: "foundry.{{ secrets.domain }}"

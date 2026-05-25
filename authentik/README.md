@@ -10,8 +10,9 @@ The current setup deploys:
 
 and exposes Authentik through Traefik on `https://authentik.<domain>`.
 
-Create `authentik/.env.sops.yaml` before deploying Authentik and provide at
-least:
+Add the `sops_authentik_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml` before deploying Authentik
+and provide at least:
 
 - `PG_PASS`
 - `AUTHENTIK_SECRET_KEY`
@@ -29,8 +30,8 @@ again afterward. `PG_PASS` and `AUTHENTIK_SECRET_KEY` are no longer generated
 on the VPS.
 
 Authentik backups use their own Borg repository path and passphrase from
-`authentik/.env.sops.yaml`, while still connecting to the shared Hetzner
-storage box configured in `secrets.sops.yaml`.
+`sops_authentik_secrets`, while still connecting to the shared Hetzner
+storage box configured in `sops_secrets`.
 
 This uses authentik's official automated-install bootstrap variables for the
 default `akadmin` user. Per authentik's documentation, the bootstrap password
@@ -66,7 +67,7 @@ applications without editing one central Authentik blueprint file.
 
 In this repo, the reporting-tool blueprint now provisions the Witness admin
 OIDC application and the `reporting-tool-admin-access` group. Because that
-provider is rendered from repo-managed secrets, `reporting-tool/.env.sops.yaml`
+provider is rendered from repo-managed secrets, `sops_reporting_tool_secrets`
 must define `ADMIN_OIDC_CLIENT_SECRET` before `task deploy:authentik` or
 `task deploy`.
 

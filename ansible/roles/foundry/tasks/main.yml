@@ -1,0 +1,193 @@
+---
+# Foundry VTT. Borg key/env/init and the backup systemd unit are delegated to the
+# shared borg_target and backup_unit roles; everything else is Foundry-specific.
+# `secrets` and `foundry_secrets` come from inventories/prod/group_vars.
+- name: Require Foundry secret values
+  ansible.builtin.assert:
+    that:
+      - foundry_secrets.FOUNDRY_ADMIN_KEY is defined
+      - (foundry_secrets.FOUNDRY_ADMIN_KEY | trim) != ""
+      - foundry_secrets.borg_path is defined
+      - (foundry_secrets.borg_path | trim) != ""
+      - foundry_secrets.borg_passphrase is defined
+      - (foundry_secrets.borg_passphrase | trim) != ""
+      - >-
+        (
+          foundry_secrets.FOUNDRY_RELEASE_URL is defined
+          and (foundry_secrets.FOUNDRY_RELEASE_URL | trim) != ""
+        )
+        or
+        (
+          foundry_secrets.FOUNDRY_USERNAME is defined
+          and (foundry_secrets.FOUNDRY_USERNAME | trim) != ""
+          and foundry_secrets.FOUNDRY_PASSWORD is defined
+          and (foundry_secrets.FOUNDRY_PASSWORD | trim) != ""
+        )
+    fail_msg: >-
+      group_vars/all.sops.yaml (sops_foundry_secrets) must define FOUNDRY_ADMIN_KEY, borg_path,
+      borg_passphrase, and either FOUNDRY_RELEASE_URL or both
+      FOUNDRY_USERNAME and FOUNDRY_PASSWORD.
+  no_log: true
+
+- name: Set Foundry public hostname fact
+  ansible.builtin.set_fact:
+    foundry_public_hostname: "{{ foundry_secrets.FOUNDRY_PUBLIC_HOSTNAME | default(foundry_default_public_hostname, true) }}"
+  no_log: true
+
+- name: Create Foundry directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(deploy_user) }}"
+    group: "{{ item.group | default(deploy_group) }}"
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - { path: /opt/vps-devops/foundry, mode: "0755" }
+    - { path: /opt/vps-devops/foundry/data, mode: "0775", owner: "1000", group: "1000" }
+    - { path: /opt/vps-devops/foundry/data/container_cache, mode: "0775", owner: "1000", group: "1000" }
+
+- name: Check Foundry container_cache directory owner
+  ansible.builtin.stat:
+    path: /opt/vps-devops/foundry/data/container_cache
+  register: foundry_cache_stat
+
+- name: Fix Foundry data ownership for container user
+  ansible.builtin.command: chown -R 1000:1000 /opt/vps-devops/foundry/data
+  become: true
+  changed_when: true
+  when: foundry_cache_stat.stat.exists and foundry_cache_stat.stat.uid != 1000
+
+- name: Set up Borg target for Foundry
+  ansible.builtin.include_role:
+    name: borg_target
+  vars:
+    borg_service_slug: foundry
+    borg_secrets: "{{ foundry_secrets }}"
+
+- name: Build Foundry backup environment content
+  ansible.builtin.set_fact:
+    foundry_backup_env_content: |
+      export FOUNDRY_ROOT=/opt/vps-devops/foundry
+      export FOUNDRY_DATA_DIR=/opt/vps-devops/foundry/data
+      export FOUNDRY_CONTAINER={{ foundry_container_name }}
+      export FOUNDRY_PUBLIC_HOSTNAME={{ foundry_public_hostname }}
+      export FOUNDRY_ARCHIVE_PREFIX={{ foundry_archive_prefix }}
+  no_log: true
+
+- name: Set up backup unit for Foundry
+  ansible.builtin.include_role:
+    name: backup_unit
+  vars:
+    backup_service_slug: foundry
+    backup_display_name: Foundry
+    backup_timer_oncalendar: "*-*-* 05:00:00"
+    backup_env_dest: /opt/vps-devops/scripts/foundry-backup-env
+    backup_env_content: "{{ foundry_backup_env_content }}"
+
+- name: Ensure proxy network exists
+  community.docker.docker_network:
+    name: proxy
+    ipam_config:
+      - subnet: "{{ secrets.proxy_subnet }}"
+
+- name: Render Foundry compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vps-devops/foundry/docker-compose.yml
+    mode: "0644"
+  register: foundry_compose_result
+
+- name: Build Foundry env content
+  ansible.builtin.set_fact:
+    foundry_env_content: |
+      {% if foundry_secrets.FOUNDRY_RELEASE_URL is defined and (foundry_secrets.FOUNDRY_RELEASE_URL | trim) != '' %}
+      FOUNDRY_RELEASE_URL={{ foundry_secrets.FOUNDRY_RELEASE_URL }}
+      {% else %}
+      FOUNDRY_USERNAME={{ foundry_secrets.FOUNDRY_USERNAME }}
+      FOUNDRY_PASSWORD={{ foundry_secrets.FOUNDRY_PASSWORD }}
+      {% endif %}
+      FOUNDRY_ADMIN_KEY={{ foundry_secrets.FOUNDRY_ADMIN_KEY }}
+      FOUNDRY_HOSTNAME={{ foundry_public_hostname }}
+      FOUNDRY_PROXY_PORT={{ foundry_secrets.FOUNDRY_PROXY_PORT | default('443', true) }}
+      FOUNDRY_PROXY_SSL={{ foundry_secrets.FOUNDRY_PROXY_SSL | default('true', true) }}
+      FOUNDRY_UPNP={{ foundry_secrets.FOUNDRY_UPNP | default('false', true) }}
+      CONTAINER_CACHE={{ foundry_secrets.CONTAINER_CACHE | default('/data/container_cache', true) }}
+      CONTAINER_PRESERVE_CONFIG={{ foundry_secrets.CONTAINER_PRESERVE_CONFIG | default('false', true) }}
+      TZ={{ foundry_secrets.TZ | default('UTC', true) }}
+      {% if foundry_secrets.FOUNDRY_LICENSE_KEY is defined and (foundry_secrets.FOUNDRY_LICENSE_KEY | trim) != '' %}
+      FOUNDRY_LICENSE_KEY={{ foundry_secrets.FOUNDRY_LICENSE_KEY }}
+      {% endif %}
+      {% if foundry_secrets.FOUNDRY_PASSWORD_SALT is defined and (foundry_secrets.FOUNDRY_PASSWORD_SALT | trim) != '' %}
+      FOUNDRY_PASSWORD_SALT={{ foundry_secrets.FOUNDRY_PASSWORD_SALT }}
+      {% endif %}
+      {% if foundry_secrets.FOUNDRY_WORLD is defined and (foundry_secrets.FOUNDRY_WORLD | trim) != '' %}
+      FOUNDRY_WORLD={{ foundry_secrets.FOUNDRY_WORLD }}
+      {% endif %}
+  no_log: true
+
+- name: Build Foundry env hash
+  ansible.builtin.set_fact:
+    foundry_env_hash: "{{ foundry_env_content | hash('sha256') }}"
+  no_log: true
+
+- name: Read previous Foundry env hash
+  ansible.builtin.slurp:
+    src: /opt/vps-devops/foundry/.env.sha256
+  register: foundry_env_hash_file
+  failed_when: false
+  no_log: true
+
+- name: Decide whether Foundry env changed
+  ansible.builtin.set_fact:
+    foundry_env_changed: "{{ (foundry_env_hash_file.content | default('') | b64decode | trim) != foundry_env_hash }}"
+  no_log: true
+
+- name: Decide whether Foundry needs full recreate
+  ansible.builtin.set_fact:
+    foundry_needs_recreate: "{{ foundry_compose_result.changed or foundry_env_changed }}"
+
+- name: Check whether Foundry already has data
+  ansible.builtin.stat:
+    path: /opt/vps-devops/foundry/data/Config/options.json
+  register: foundry_options_file
+
+- name: Back up Foundry before reconfiguration
+  ansible.builtin.command:
+    cmd: bash /opt/vps-devops/scripts/backup-foundry.sh
+  changed_when: true
+  when: foundry_needs_recreate and foundry_options_file.stat.exists
+
+- name: Deploy Foundry with temporary .env
+  block:
+    - name: Write Foundry .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/foundry/.env
+        content: "{{ foundry_env_content }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Store Foundry env hash
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/foundry/.env.sha256
+        content: "{{ foundry_env_hash }}\n"
+        mode: "0600"
+      no_log: true
+
+    - name: Recreate Foundry when config changed
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/foundry
+        state: present
+        recreate: always
+      when: foundry_needs_recreate
+
+    - name: Ensure Foundry is running without forced recreate
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/foundry
+        state: present
+      when: not foundry_needs_recreate
+  always:
+    - name: Remove Foundry temporary env file
+      ansible.builtin.file:
+        path: /opt/vps-devops/foundry/.env
+        state: absent

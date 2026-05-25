@@ -8,14 +8,16 @@ cut over.
 
 ## Secrets
 
-Create `foundry/.env.sops.yaml` with:
+Add the `sops_foundry_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml` with:
 
 ```yaml
-FOUNDRY_USERNAME: your-foundry-account-email-or-username
-FOUNDRY_PASSWORD: your-foundry-account-password
-FOUNDRY_ADMIN_KEY: your-foundry-admin-key
-borg_path: your-foundry-borg-repo-path
-borg_passphrase: your-foundry-borg-passphrase
+sops_foundry_secrets:
+  FOUNDRY_USERNAME: your-foundry-account-email-or-username
+  FOUNDRY_PASSWORD: your-foundry-account-password
+  FOUNDRY_ADMIN_KEY: your-foundry-admin-key
+  borg_path: your-foundry-borg-repo-path
+  borg_passphrase: your-foundry-borg-passphrase
 ```
 
 You can use `FOUNDRY_RELEASE_URL` instead of `FOUNDRY_USERNAME` and

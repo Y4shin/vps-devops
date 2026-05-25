@@ -26,13 +26,19 @@
             yq-go
             fzf
             lefthook
+            hcloud
+            opentofu
+            ansible-lint
+            yamllint
             (python3.withPackages (ps: [ ps.hcloud ps.jinja2 ps.pyyaml ]))
           ];
 
           shellHook = ''
-            ansible-galaxy collection install --upgrade \
+            # Install pinned collections from ansible/requirements.yml (no --upgrade,
+            # so versions stay reproducible). This is our reproducibility mechanism
+            # in lieu of a containerized Execution Environment.
+            ansible-galaxy collection install -r ansible/requirements.yml \
               --collections-path ./collections \
-              community.sops community.docker community.general ansible.posix \
               > /dev/null 2>&1 &
           '';
         };

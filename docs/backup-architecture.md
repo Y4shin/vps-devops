@@ -106,10 +106,11 @@ Primary data:
 
 Important note:
 
-- `PG_PASS` and `AUTHENTIK_SECRET_KEY` are expected to live in
-  `authentik/.env.sops.yaml`.
+- `PG_PASS` and `AUTHENTIK_SECRET_KEY` are expected to live in the
+  `sops_authentik_secrets` dict in
+  `ansible/inventories/prod/group_vars/all.sops.yaml`.
 - Authentik's backup repo settings (`borg_path` and `borg_passphrase`) also
-  live in `authentik/.env.sops.yaml`.
+  live in `sops_authentik_secrets`.
 - The host-side `.env` is treated as ephemeral deploy-time material and can be
   reconstructed from repo-managed secrets.
 
@@ -194,9 +195,9 @@ On the VPS:
 Remote backup target:
 
 - Witness Borg repository over SSH using `borg_user` and `borg_host` from
-  `secrets.sops.yaml` plus `borg_path` from `reporting-tool/.env.sops.yaml`
+  `sops_secrets` plus `borg_path` from `sops_reporting_tool_secrets`
 - Authentik Borg repository over SSH using `borg_user` and `borg_host` from
-  `secrets.sops.yaml` plus `borg_path` from `authentik/.env.sops.yaml`
+  `sops_secrets` plus `borg_path` from `sops_authentik_secrets`
 
 ## Current Restore Flow
 

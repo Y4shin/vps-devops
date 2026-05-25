@@ -7,7 +7,7 @@ services:
       - {{ secrets.proxy_dns_ip }}
     networks:
       - proxy
-{% if mail_secrets_file.stat.exists %}
+{% if mail_enabled %}
       - mail
 {% endif %}
       - internal
@@ -24,7 +24,7 @@ networks:
   proxy:
     external: true
     name: proxy
-{% if mail_secrets_file.stat.exists %}
+{% if mail_enabled %}
   mail:
     external: true
     name: mail

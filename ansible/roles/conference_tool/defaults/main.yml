@@ -1,0 +1,9 @@
+---
+conference_tool_image: "ghcr.io/y4shin/open-caucus:latest"
+conference_tool_container: "conference-tool-app-1"
+conference_tool_db_volume: "conference-tool_db_data"
+conference_tool_archive_prefix: "conference-tool"
+conference_tool_oidc_client_id: "conference-tool"
+conference_tool_application_slug: "conference-tool"
+conference_tool_access_group: "conference-user"
+conference_tool_admin_group: "conference-admin"

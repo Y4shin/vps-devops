@@ -1,0 +1,224 @@
+---
+# Conference Tool (Open Caucus). Borg + backup unit delegated to shared roles;
+# digest-gated recreate + OIDC/webhook/email env are service-specific. `secrets`,
+# `conference_tool_secrets`, `ct_n8n_secrets`, `mail_secrets` come from group_vars.
+# Cross-service integration is gated on the *_enabled flags (group_vars) rather
+# than on the presence of other services' sops files.
+- name: Set webhook secret fact
+  ansible.builtin.set_fact:
+    ct_webhook_secret: "{{ ct_n8n_secrets.WEBHOOK_SECRET | default('') }}"
+  no_log: true
+
+- name: Set mail domain fact
+  ansible.builtin.set_fact:
+    ct_mail_domain: "{{ mail_secrets.MAIL_DOMAIN | default(secrets.domain, true) }}"
+  when: mail_enabled
+
+- name: Validate conference-tool secrets
+  ansible.builtin.assert:
+    that:
+      - conference_tool_secrets.SESSION_SECRET is defined
+      - (conference_tool_secrets.SESSION_SECRET | trim) != ""
+      - conference_tool_secrets.OAUTH_CLIENT_SECRET is defined
+      - (conference_tool_secrets.OAUTH_CLIENT_SECRET | trim) != ""
+      - conference_tool_secrets.borg_path is defined
+      - (conference_tool_secrets.borg_path | trim) != ""
+      - conference_tool_secrets.borg_passphrase is defined
+      - (conference_tool_secrets.borg_passphrase | trim) != ""
+    fail_msg: >-
+      group_vars/all.sops.yaml (sops_conference_tool_secrets) must define SESSION_SECRET,
+      OAUTH_CLIENT_SECRET, borg_path, and borg_passphrase.
+  no_log: true
+
+- name: Set up Borg target for conference-tool
+  ansible.builtin.include_role:
+    name: borg_target
+  vars:
+    borg_service_slug: conference-tool
+    borg_secrets: "{{ conference_tool_secrets }}"
+
+- name: Create conference-tool directory
+  ansible.builtin.file:
+    path: /opt/vps-devops/conference-tool
+    state: directory
+    mode: "0755"
+
+- name: Build conference-tool backup environment content
+  ansible.builtin.set_fact:
+    ct_backup_env_content: |
+      export CT_CONTAINER={{ conference_tool_container }}
+      export CT_DB_VOLUME={{ conference_tool_db_volume }}
+      export CT_STAGING_DIR=/opt/vps-devops/backups/conference-tool-staging
+      export CT_ARCHIVE_PREFIX={{ conference_tool_archive_prefix }}
+
+- name: Set up backup unit for conference-tool
+  ansible.builtin.include_role:
+    name: backup_unit
+  vars:
+    backup_service_slug: conference-tool
+    backup_timer_oncalendar: "*-*-* 05:30:00"
+    backup_staging_subdir: conference-tool-staging
+    backup_env_dest: /opt/vps-devops/scripts/conference-tool-backup-env
+    backup_env_content: "{{ ct_backup_env_content }}"
+
+- name: Ensure conference-tool backup lock file is writable by deploy
+  ansible.builtin.file:
+    path: /opt/vps-devops/backups/conference-tool-staging.lock
+    state: touch
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0660"
+  become: true
+
+- name: Render conference-tool compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vps-devops/conference-tool/docker-compose.yml
+    mode: "0644"
+  register: ct_compose_result
+
+- name: Pull latest conference-tool image
+  ansible.builtin.command:
+    cmd: "docker pull {{ conference_tool_image }} --quiet"
+  changed_when: false
+
+- name: Get current conference-tool image digest
+  ansible.builtin.command:
+    cmd: "docker inspect {{ conference_tool_image }} --format '{% raw %}{{.Id}}{% endraw %}'"
+  register: ct_current_digest
+  changed_when: false
+
+- name: Read last deployed digest
+  ansible.builtin.slurp:
+    src: /opt/vps-devops/conference-tool/.last-deployed-digest
+  register: ct_last_digest_file
+  failed_when: false
+
+- name: Set last deployed digest fact
+  ansible.builtin.set_fact:
+    ct_last_digest: "{{ ct_last_digest_file.content | default('') | b64decode | trim }}"
+
+- name: Set image change fact
+  ansible.builtin.set_fact:
+    ct_image_changed: "{{ ct_last_digest != ct_current_digest.stdout }}"
+
+- name: Backup conference-tool before deploy
+  ansible.builtin.command:
+    cmd: bash /opt/vps-devops/scripts/backup-conference-tool.sh
+  changed_when: true
+  when: ct_image_changed and ct_last_digest != ""
+
+- name: Build conference-tool env content
+  ansible.builtin.set_fact:
+    ct_env_content: |
+      ENVIRONMENT=production
+      HOST=0.0.0.0
+      PORT=8080
+      LOG_FORMAT=json
+      LOG_LEVEL=info
+      SERVICE_NAME=conference-tool
+      SESSION_SECRET={{ conference_tool_secrets.SESSION_SECRET }}
+      SESSION_EXPIRATION=86400
+      DATABASE_PATH=/data/conference.db
+      STORAGE_DIR=/data/uploads
+      AUTH_PASSWORD_ENABLED=false
+      AUTH_OAUTH_ENABLED=true
+      OAUTH_ISSUER_URL=https://authentik.{{ secrets.domain }}/application/o/{{ conference_tool_application_slug }}/
+      OAUTH_CLIENT_ID={{ conference_tool_oidc_client_id }}
+      OAUTH_CLIENT_SECRET={{ conference_tool_secrets.OAUTH_CLIENT_SECRET }}
+      OAUTH_REDIRECT_URL=https://conference.{{ secrets.domain }}/oauth/callback
+      OAUTH_SCOPES=openid,profile,email
+      OAUTH_GROUPS_CLAIM=groups
+      OAUTH_USERNAME_CLAIMS=preferred_username,email,sub
+      OAUTH_FULL_NAME_CLAIMS=name,preferred_username
+      OAUTH_PROVISIONING_MODE=auto_create
+      OAUTH_REQUIRED_GROUPS={{ conference_tool_access_group }}
+      OAUTH_ADMIN_GROUP={{ conference_tool_admin_group }}
+      OAUTH_COMMITTEE_GROUP_PREFIX=conference-
+      WEBHOOK_URLS=https://n8n.{{ secrets.domain }}/webhook/meeting-events
+      WEBHOOK_SECRET={{ ct_webhook_secret | default('') }}
+      {% if mail_enabled %}
+      EMAIL_ENABLED=true
+      EMAIL_SMTP_HOST=mailserver
+      EMAIL_SMTP_PORT=25
+      EMAIL_USERNAME=
+      EMAIL_PASSWORD=
+      EMAIL_FROM_ADDRESS=conference@{{ ct_mail_domain }}
+      EMAIL_FROM_NAME=Open Caucus
+      {% endif %}
+  no_log: true
+
+- name: Build conference-tool env hash
+  ansible.builtin.set_fact:
+    ct_env_hash: "{{ ct_env_content | hash('sha256') }}"
+  no_log: true
+
+- name: Read previous conference-tool env hash
+  ansible.builtin.slurp:
+    src: /opt/vps-devops/conference-tool/.env.sha256
+  register: ct_env_hash_file
+  failed_when: false
+  no_log: true
+
+- name: Decide whether conference-tool env changed
+  ansible.builtin.set_fact:
+    ct_env_changed: "{{ (ct_env_hash_file.content | default('') | b64decode | trim) != ct_env_hash }}"
+  no_log: true
+
+- name: Deploy conference-tool with temporary .env
+  block:
+    - name: Write conference-tool .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/conference-tool/.env
+        content: "{{ ct_env_content }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Store conference-tool env hash
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/conference-tool/.env.sha256
+        content: "{{ ct_env_hash }}\n"
+        mode: "0600"
+      no_log: true
+
+    - name: Decide whether conference-tool needs full recreate
+      ansible.builtin.set_fact:
+        ct_needs_recreate: >-
+          {{
+            ct_image_changed
+            or ct_compose_result.changed
+            or ct_env_changed
+          }}
+
+    - name: Recreate conference-tool when image changed
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/conference-tool
+        pull: never
+        state: present
+        recreate: always
+      when: ct_image_changed
+
+    - name: Recreate conference-tool when config changed
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/conference-tool
+        state: present
+        recreate: always
+      when: not ct_image_changed and ct_needs_recreate
+
+    - name: Ensure conference-tool is running without forced recreate
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/conference-tool
+        state: present
+      when: not ct_needs_recreate
+
+    - name: Record deployed digest
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/conference-tool/.last-deployed-digest
+        content: "{{ ct_current_digest.stdout }}"
+        mode: "0644"
+      when: ct_image_changed
+  always:
+    - name: Remove conference-tool temporary .env
+      ansible.builtin.file:
+        path: /opt/vps-devops/conference-tool/.env
+        state: absent

@@ -1,0 +1,18 @@
+---
+# Defaults for the backup_unit role. Callers must set:
+#   backup_service_slug      (e.g. "foundry") — unit + script basenames
+#   backup_timer_oncalendar  (e.g. "*-*-* 05:00:00")
+# Optional:
+#   backup_display_name      (human name in unit Description; default = slug)
+#   backup_env_dest/content  (write a <slug>-backup-env file)
+#   backup_staging_subdir    (create /opt/vps-devops/backups/<subdir>)
+#   backup_extra_scripts     (list of {src,dest,mode})
+backup_display_name: "{{ backup_service_slug }}"
+backup_description: "Run {{ backup_display_name }} Borg backup"
+backup_timer_description: "Schedule daily {{ backup_display_name }} Borg backup"
+backup_script_src: "{{ repo_root }}/scripts/backup-{{ backup_service_slug }}.sh"
+backup_restore_script_src: "{{ repo_root }}/scripts/restore-{{ backup_service_slug }}.sh"
+backup_staging_subdir: ""
+backup_env_dest: ""
+backup_env_content: ""
+backup_extra_scripts: []

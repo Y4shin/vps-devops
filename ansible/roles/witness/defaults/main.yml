@@ -1,0 +1,5 @@
+---
+awscli_arch: "{{ 'x86_64' if ansible_facts['architecture'] == 'x86_64' else 'aarch64' }}"
+reporting_tool_admin_oidc_application_slug: "reporting-tool-admin"
+reporting_tool_admin_oidc_client_id: "reporting-tool-admin"
+reporting_tool_admin_access_group: "reporting-tool-admin-access"

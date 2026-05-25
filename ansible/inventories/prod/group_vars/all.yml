@@ -1,0 +1,45 @@
+---
+# Secrets indirection (plaintext, committed).
+#
+# The community.sops vars plugin auto-decrypts group_vars/all.sops.yaml, exposing
+# `sops_*` source variables. Here we map them to the logical names that the
+# playbooks/roles actually reference, so role code is decoupled from where (and
+# under what key) a secret is stored. See docs/modernization/03-M02-*.md.
+#
+# host_group_vars loads this file; it ignores all.sops.yaml (the `.sops.yaml`
+# extension is not in its list), so there is no collision with the sops plugin.
+
+# Global infra secrets — referenced as `secrets.<key>` throughout the playbooks.
+secrets: "{{ sops_secrets }}"
+
+# Per-service secret dicts. Aliases preserve every existing playbook variable name
+# (e.g. witness uses `app_secrets`, authentik uses `reporting_tool_secrets`, both
+# pointing at the reporting-tool secrets).
+authentik_secrets: "{{ sops_authentik_secrets }}"
+reporting_tool_secrets: "{{ sops_reporting_tool_secrets }}"
+app_secrets: "{{ sops_reporting_tool_secrets }}"
+foundry_secrets: "{{ sops_foundry_secrets }}"
+conference_tool_secrets: "{{ sops_conference_tool_secrets }}"
+n8n_secrets: "{{ sops_n8n_secrets }}"
+ct_n8n_secrets: "{{ sops_n8n_secrets }}"
+mail_secrets: "{{ sops_mail_secrets }}"
+
+# Connection secrets migrated out of the old encrypted inventory.
+ansible_host: "{{ sops_connection.ansible_host }}"
+ansible_become_password: "{{ sops_connection.ansible_become_password }}"
+
+# Global non-secret config shared across roles/playbooks (previously duplicated in
+# each playbook's `vars:`). Roles rely on these.
+repo_root: "{{ playbook_dir }}/.."
+deploy_user: deploy
+deploy_group: deploy
+borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+# Service toggles — replace the old "does <svc>/.env.sops.yaml exist?" gating that
+# drove optional cross-service integration (authentik OIDC provisioning,
+# conference-tool email). All services are deployed on this host, so all true.
+mail_enabled: true
+foundry_enabled: true
+conference_tool_enabled: true
+reporting_tool_enabled: true
+n8n_enabled: true

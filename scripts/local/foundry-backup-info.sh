@@ -7,17 +7,17 @@ age_key_file="${repo_root}/age.key"
 
 borg_repo="ssh://$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["borg_user"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["borg_user"]' "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )@$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["borg_host"]' "${repo_root}/secrets.sops.yaml"
+    sops -d --extract '["sops_secrets"]["borg_host"]' "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 ):23/$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["borg_path"]' "${repo_root}/foundry/.env.sops.yaml"
+    sops -d --extract '["sops_foundry_secrets"]["borg_path"]' "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )"
 borg_passphrase_value="$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["borg_passphrase"]' "${repo_root}/foundry/.env.sops.yaml"
+    sops -d --extract '["sops_foundry_secrets"]["borg_passphrase"]' "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )"
 
 (

@@ -2,3 +2,10 @@ pre-commit:
   commands:
     check-sops-encrypted:
       run: bash scripts/local/check-sops-encrypted.sh
+
+# Lint on push (not commit) to keep commits fast. Requires the nix devshell
+# (ansible-lint); run `git push` from a shell with the flake env active.
+pre-push:
+  commands:
+    ansible-lint:
+      run: task lint

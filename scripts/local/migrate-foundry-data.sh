@@ -55,8 +55,8 @@ require_command sops
 
 target_host="$(
   SOPS_AGE_KEY_FILE="$age_key_file" \
-    sops -d --extract '["all"]["hosts"]["vps"]["ansible_host"]' \
-    "${repo_root}/ansible/inventory.sops.yaml"
+    sops -d --extract '["sops_connection"]["ansible_host"]' \
+    "${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 )"
 
 tmp_dir="$(mktemp -d)"

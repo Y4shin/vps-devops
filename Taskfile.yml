@@ -5,10 +5,10 @@ env:
   SOPS_AGE_KEY_FILE: ./age.key
 
 tasks:
-  decrypt:
-    desc: Decrypt inventory
+  lint:
+    desc: Lint the Ansible code (ansible-lint, which also runs yamllint)
     cmds:
-      - sops -d ansible/inventory.sops.yaml > ansible/inventory.yml
+      - ansible-lint ansible/
 
   bootstrap:
     desc: Minimal first-contact bootstrap (create deploy user + SSH access)
@@ -17,9 +17,7 @@ tasks:
 
   deploy:base:
     desc: Configure base host services via deploy user + inventory-configured root escalation
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/base.yml
 
   bootstrap:askpass:
@@ -29,23 +27,17 @@ tasks:
 
   deploy:
     desc: Deploy all services (Traefik + Authentik + Witness)
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/site.yml
 
   deploy:traefik:
     desc: Deploy Traefik only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/traefik.yml
 
   deploy:authentik:
     desc: Deploy Authentik only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
 
   authentik:logs:
@@ -61,30 +53,22 @@ tasks:
 
   deploy:witness:
     desc: Deploy Witness only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/witness.yml
 
   deploy:foundry:
     desc: Deploy Foundry VTT only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/foundry.yml
 
   deploy:conference-tool:
     desc: Deploy Conference Tool only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/conference-tool.yml
 
   deploy:n8n:
     desc: Deploy n8n only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/n8n.yml
 
   ssh:n8n:
@@ -95,9 +79,7 @@ tasks:
 
   deploy:mail:
     desc: Deploy outbound mail relay only
-    deps: [decrypt]
     cmds:
-      - defer: rm -f ansible/inventory.yml
       - bash ./scripts/local/run-playbook.sh ansible/mail.yml
 
   all:
@@ -139,8 +121,6 @@ tasks:
         msg: setup:debian:trixie only supports Linux hosts
       - sh: test -f /etc/os-release && . /etc/os-release && test "$ID" = "debian" && test "$VERSION_CODENAME" = "trixie"
         msg: setup:debian:trixie requires Debian Trixie
-    vars:
-      ANSIBLE_COLLECTIONS: community.sops community.docker community.general ansible.posix
     cmds:
       - echo "Installing system packages..."
       - sudo apt-get update && sudo apt-get install -y age borgbackup gnupg pipx openssh-client git rsync sshpass
@@ -151,7 +131,7 @@ tasks:
       - pipx install ansible --include-deps
       - pipx ensurepath
       - echo "Installing Ansible collections..."
-      - ~/.local/bin/ansible-galaxy collection install --upgrade --collections-path ./collections {{.ANSIBLE_COLLECTIONS}}
+      - ~/.local/bin/ansible-galaxy collection install -r ansible/requirements.yml --collections-path ./collections
       - echo "Installing git hooks..."
       - lefthook install
       - task: check:unix
@@ -471,7 +451,7 @@ tasks:
         [ -n "$FILE" ] && sops -d "$FILE" | less
 
   secrets:extract:
-    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=secrets.sops.yaml TARGET='[\"domain\"]'"
+    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=ansible/inventories/prod/group_vars/all.sops.yaml TARGET='[\"sops_secrets\"][\"domain\"]'"
     preconditions:
       - sh: test -n "{{.FILE}}"
         msg: secrets:extract requires FILE=...

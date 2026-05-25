@@ -1,0 +1,24 @@
+---
+# ansible-lint configuration. Run from the repo root: `ansible-lint` (or `task lint`).
+# Uses ./ansible.cfg and the vendored ./collections.
+
+skip_list:
+  # This repo intentionally uses shared/global variable names: group_vars provides
+  # `secrets`, `app_secrets`, etc., and the shared helper roles (borg_target,
+  # backup_unit) take generic params. Role-prefixing every var/register/param
+  # would fight that design and force ~80 churny renames. Skip the idiom rule.
+  - var-naming[no-role-prefix]
+
+exclude_paths:
+  # Vendored collections (gitignored) and the local docker-compose test sandbox.
+  - collections/
+  - test/
+  # SOPS-encrypted files are AES blobs; yaml/structure rules don't apply.
+  - "**/*.sops.yaml"
+  - "**/*.sops.yml"
+  - "**/*.sops"
+  # Service data files that are not Ansible content (DNS records, Authentik
+  # blueprints are rendered/consumed, not linted as playbooks).
+  - "*/dns-records.yaml"
+  - "dns-records.yaml"
+  - "**/authentik-blueprints/"

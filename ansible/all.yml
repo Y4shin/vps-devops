@@ -1,5 +1,7 @@
 ---
 # Runs the re-runnable host base config plus the service deploys.
 # Use this after the one-time root bootstrap has already created the deploy user.
-- import_playbook: base.yml
-- import_playbook: site.yml
+- name: Base host configuration
+  import_playbook: base.yml
+- name: All services
+  import_playbook: site.yml

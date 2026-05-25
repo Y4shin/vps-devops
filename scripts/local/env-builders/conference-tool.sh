@@ -4,14 +4,15 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 age_key_file="${repo_root}/age.key"
+all_sops="${repo_root}/ansible/inventories/prod/group_vars/all.sops.yaml"
 
 extract() {
   local file="$1" path="$2"
-  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "$path" "$file"
+  SOPS_AGE_KEY_FILE="$age_key_file" sops -d --extract "[\"$file\"]$path" "$all_sops"
 }
 
-secrets_file="${repo_root}/secrets.sops.yaml"
-app_file="${repo_root}/conference-tool/.env.sops.yaml"
+secrets_file="sops_secrets"
+app_file="sops_conference_tool_secrets"
 
 domain="$(extract "$secrets_file" '["domain"]')"
 

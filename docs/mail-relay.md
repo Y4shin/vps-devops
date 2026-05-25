@@ -20,20 +20,23 @@ For `pplattner.de`, that means:
 
 ## Secrets
 
-Create `mail/.env.sops.yaml` with at least:
+Add the `sops_mail_secrets` dict to
+`ansible/inventories/prod/group_vars/all.sops.yaml` with at least:
 
 ```yaml
-MAIL_SUBMISSION_PASSWORD: a-strong-random-password
+sops_mail_secrets:
+  MAIL_SUBMISSION_PASSWORD: a-strong-random-password
 ```
 
 Optional:
 
 ```yaml
-MAIL_DOMAIN: pplattner.de
-MAIL_HOSTNAME: mail.pplattner.de
-MAIL_SUBMISSION_ACCOUNT: authentik@pplattner.de
-MAIL_POSTMASTER_ADDRESS: postmaster@pplattner.de
-MAIL_AUTHENTIK_FROM: authentik@pplattner.de
+sops_mail_secrets:
+  MAIL_DOMAIN: pplattner.de
+  MAIL_HOSTNAME: mail.pplattner.de
+  MAIL_SUBMISSION_ACCOUNT: authentik@pplattner.de
+  MAIL_POSTMASTER_ADDRESS: postmaster@pplattner.de
+  MAIL_AUTHENTIK_FROM: authentik@pplattner.de
 ```
 
 ## Deploy
@@ -51,8 +54,8 @@ The mail playbook will:
 4. Bootstrap a local sender account
 5. Generate DKIM keys for the mail domain
 
-Authentik will automatically use the local relay if `mail/.env.sops.yaml`
-exists when you deploy Authentik.
+Authentik will automatically use the local relay if `sops_mail_secrets` is
+defined when you deploy Authentik.
 
 ## DNS
 

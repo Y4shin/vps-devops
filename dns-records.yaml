@@ -1,6 +1,6 @@
 # DNS records for the zone apex.
 #
-# Template variables are resolved from secrets.sops.yaml at sync time.
+# Template variables are resolved from group_vars/all.sops.yaml (sops_secrets) at sync time.
 # All values support Jinja2 syntax: {{ domain }}, {{ vps_ipv4 }}, {{ vps_ipv6 }}, etc.
 #
 # Run:  task dns:plan   (dry run)
