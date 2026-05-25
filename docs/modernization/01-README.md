@@ -42,6 +42,11 @@ mandatory plan-review gate.
   DKIM captured as committed data rather than fetched live from the container.
 - **Scope:** full Ansible modernization (vars-plugin + roles + lint) **and**
   OpenTofu.
+- **Execution Environments:** NOT adopted. Unlike pdl-hannover (which runs all
+  Ansible inside an `ansible-builder`/`ansible-navigator` Docker EE), vps-devops
+  uses the **Nix devshell** as its reproducible Ansible runtime. To close the
+  reproducibility gap we pin collections via `ansible/requirements.yml` and drop
+  the flake `shellHook`'s `--upgrade` install (M03). No Docker EE, no navigator.
 
 ## Branch strategy
 

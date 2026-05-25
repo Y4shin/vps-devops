@@ -51,6 +51,14 @@ timer, docker network creation, the temp-`.env` `block/always`, and
        version: ">=1.5.0"
    ```
 
+   **Harden the Nix runtime (in lieu of an Execution Environment).** Change
+   `flake.nix`'s `shellHook` to install from this file *without* `--upgrade`:
+   `ansible-galaxy collection install -r ansible/requirements.yml
+   --collections-path ./collections`. This pins collection versions instead of
+   floating to latest. We are deliberately NOT adopting containerized EEs
+   (ansible-builder/ansible-navigator) — the Nix devshell is the reproducible
+   runtime. See README "Decisions locked in".
+
 5. **Config-parity gate (set up here, enforced in M05).** For each service, make
    it possible to render the compose/`.env` both the old way and the new role way
    against the same prod vars, so M05 can `diff` them. The roles must produce

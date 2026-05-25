@@ -32,11 +32,7 @@
           borg_passphrase before deploying.
       when: not conference_tool_secrets_file.stat.exists
 
-    - name: Set secrets variables
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        conference_tool_secrets: "{{ lookup('community.sops.sops', repo_root + '/conference-tool/.env.sops.yaml') | from_yaml }}"
-      no_log: true
+    # `secrets` and `conference_tool_secrets` are provided by inventories/prod/group_vars.
 
     - name: Check whether n8n secrets file exists (for webhook secret)
       ansible.builtin.stat:
@@ -45,11 +41,7 @@
       become: false
       register: ct_n8n_secrets_file
 
-    - name: Load n8n secrets for webhook integration
-      ansible.builtin.set_fact:
-        ct_n8n_secrets: "{{ lookup('community.sops.sops', repo_root + '/n8n/.env.sops.yaml') | from_yaml }}"
-      when: ct_n8n_secrets_file.stat.exists
-      no_log: true
+    # `ct_n8n_secrets` is provided by inventories/prod/group_vars.
 
     - name: Set webhook secret fact
       ansible.builtin.set_fact:
@@ -63,11 +55,7 @@
       become: false
       register: mail_secrets_file
 
-    - name: Load mail secrets for email integration
-      ansible.builtin.set_fact:
-        mail_secrets: "{{ lookup('community.sops.sops', repo_root + '/mail/.env.sops.yaml') | from_yaml }}"
-      when: mail_secrets_file.stat.exists
-      no_log: true
+    # `mail_secrets` is provided by inventories/prod/group_vars.
 
     - name: Set mail domain fact
       ansible.builtin.set_fact:

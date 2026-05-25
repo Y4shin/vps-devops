@@ -24,11 +24,7 @@
           and WEBHOOK_SECRET before deploying n8n.
       when: not n8n_secrets_file.stat.exists
 
-    - name: Set secrets variables
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        n8n_secrets: "{{ lookup('community.sops.sops', repo_root + '/n8n/.env.sops.yaml') | from_yaml }}"
-      no_log: true
+    # `secrets` and `n8n_secrets` are provided by inventories/prod/group_vars.
 
     - name: Validate n8n secrets
       ansible.builtin.assert:

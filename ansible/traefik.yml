@@ -6,10 +6,7 @@
     repo_root: "{{ playbook_dir }}/.."
 
   tasks:
-    - name: Set secrets variable
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-      no_log: true
+    # `secrets` is provided by inventories/prod/group_vars (community.sops vars plugin).
 
     - name: Create Traefik directory
       ansible.builtin.file:

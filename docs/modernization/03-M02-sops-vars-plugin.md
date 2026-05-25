@@ -90,3 +90,37 @@ Revert the commit; the inline-lookup playbooks and `inventory.sops.yaml` return.
   `sops_` prefixes and logical mappings in `main.yml`.
 - Playbooks reference logical names only; no remaining inline SOPS lookups.
 - Inventory + a secret resolve via the plugin.
+
+## Implementation notes (as built, 2026-05-25)
+
+Reality differed from the sketch above in a few ways worth recording:
+
+- **One consolidated encrypted file, file-per-group form.** Instead of a
+  `group_vars/all/` directory with per-service `*.sops.yml`, secrets live in a
+  single `group_vars/all.sops.yaml`. Reason: `host_group_vars` loads *any*
+  `*.yaml` in a `group_vars/<group>/` directory, which would collide with the
+  encrypted files. The file-per-group form (`all.yml` + `all.sops.yaml`) avoids
+  this because `host_group_vars` looks for `all.yml`/`all.yaml`/`all.json` (not
+  `all.sops.yaml`), while `community.sops` loads only `*.sops.*`.
+- **`.sops.yaml` extension** (not `.sops.yml`) so it matches the existing
+  `.+\.sops\.yaml$` creation rule in `.sops.yaml` — **no creation-rule change
+  needed**.
+- **Namespaced `sops_*` dicts, not per-key flat indirection.** Service files
+  share key names (`borg_path`, `SESSION_SECRET`, …), so each source file is
+  nested under a distinct dict (`sops_authentik_secrets`, …) and `all.yml`
+  aliases them to the exact variable names the playbooks already use
+  (`authentik_secrets`, `app_secrets`→reporting-tool, `ct_n8n_secrets`→n8n, …).
+  This kept every existing `X_secrets.KEY` reference working unchanged.
+- **Connection secrets** (`ansible_host`, `ansible_become_password`) migrated out
+  of the old encrypted inventory into `sops_connection`; non-secret connection
+  vars (`ansible_user`, become method/user) live in `hosts.yml`.
+- **`run-playbook.sh` rewired** to `-i ansible/inventories/prod` so `task deploy`
+  uses the new model. The Taskfile `decrypt` dep + `defer rm inventory.yml` are
+  now harmless no-ops (cosmetic cleanup deferred to M05).
+- **Old per-service `<svc>/.env.sops.yaml` files kept** — the `*_secrets_file`
+  stat checks in authentik/conference-tool still gate optional OIDC/mail
+  provisioning on their existence. **M03/M05 must replace that gating (e.g.
+  `<svc>_enabled` flags) before deleting those files.**
+- **Verified** (no prod connection): `secrets.domain` resolves and all aliased
+  chains resolve via `ansible … -c local`; every playbook passes
+  `--syntax-check`; lefthook SOPS check green. Real run-validation is in M05.

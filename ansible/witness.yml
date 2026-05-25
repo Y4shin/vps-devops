@@ -13,11 +13,7 @@
     reporting_tool_admin_access_group: "reporting-tool-admin-access"
 
   tasks:
-    - name: Set secrets variables
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        app_secrets: "{{ lookup('community.sops.sops', repo_root + '/reporting-tool/.env.sops.yaml') | from_yaml }}"
-      no_log: true
+    # `secrets` and `app_secrets` are provided by inventories/prod/group_vars.
 
     - name: Determine Witness admin auth mode
       ansible.builtin.set_fact:

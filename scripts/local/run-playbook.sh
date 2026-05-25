@@ -27,7 +27,10 @@ fi
 
 (
   cd "$repo_root"
+  # Inventory is ansible/inventories/prod: plaintext hosts.yml + group_vars
+  # (group_vars/all.sops.yaml is auto-decrypted by the community.sops vars plugin,
+  # which inherits SOPS_AGE_KEY_FILE from this command's environment).
   SOPS_AGE_KEY_FILE="$age_key_file" \
     sops exec-file --no-fifo deploy_ssh_private_key.sops \
-    "chmod 600 {} && \"${ansible_playbook_bin}\" \"${playbook}\" -i ansible/inventory.yml -e ansible_ssh_private_key_file={}"
+    "chmod 600 {} && \"${ansible_playbook_bin}\" \"${playbook}\" -i ansible/inventories/prod -e ansible_ssh_private_key_file={}"
 )

@@ -75,36 +75,10 @@
           reporting-tool admin OIDC application can be rendered.
       when: not reporting_tool_secrets_file.stat.exists
 
-    - name: Set secrets variable
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        authentik_secrets: "{{ lookup('community.sops.sops', repo_root + '/authentik/.env.sops.yaml') | from_yaml }}"
-        reporting_tool_secrets: "{{ lookup('community.sops.sops', repo_root + '/reporting-tool/.env.sops.yaml') | from_yaml }}"
-        foundry_secrets: >-
-          {{
-            (
-              lookup('community.sops.sops', repo_root + '/foundry/.env.sops.yaml') | from_yaml
-            )
-            if foundry_secrets_file.stat.exists
-            else {}
-          }}
-        conference_tool_secrets: >-
-          {{
-            (
-              lookup('community.sops.sops', repo_root + '/conference-tool/.env.sops.yaml') | from_yaml
-            )
-            if conference_tool_secrets_file.stat.exists
-            else {}
-          }}
-        mail_secrets: >-
-          {{
-            (
-              lookup('community.sops.sops', repo_root + '/mail/.env.sops.yaml') | from_yaml
-            )
-            if mail_secrets_file.stat.exists
-            else {}
-          }}
-      no_log: true
+    # secrets, authentik_secrets, reporting_tool_secrets, foundry_secrets,
+    # conference_tool_secrets, mail_secrets are provided by inventories/prod/group_vars
+    # (community.sops vars plugin). The *_secrets_file stat checks above are kept
+    # because later tasks gate optional OIDC/mail provisioning on them.
 
     - name: Set Foundry public hostname fact for Authentik resources
       ansible.builtin.set_fact:

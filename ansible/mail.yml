@@ -21,11 +21,7 @@
           MAIL_SUBMISSION_PASSWORD before deploying the mail relay.
       when: not mail_secrets_file.stat.exists
 
-    - name: Set mail secrets variables
-      ansible.builtin.set_fact:
-        secrets: "{{ lookup('community.sops.sops', repo_root + '/secrets.sops.yaml') | from_yaml }}"
-        mail_secrets: "{{ lookup('community.sops.sops', repo_root + '/mail/.env.sops.yaml') | from_yaml }}"
-      no_log: true
+    # `secrets` and `mail_secrets` are provided by inventories/prod/group_vars.
 
     - name: Set mail derived facts
       ansible.builtin.set_fact:
