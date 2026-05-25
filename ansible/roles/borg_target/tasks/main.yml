@@ -1,0 +1,62 @@
+---
+# Deploy the Borg SSH key, write the <slug>-borg-env file, and init the repo.
+# Extracted verbatim from the per-service playbooks (identical across services).
+- name: Set Borg repo URL ({{ borg_service_slug }})
+  ansible.builtin.set_fact:
+    borg_repo: "ssh://{{ secrets.borg_user }}@{{ secrets.borg_host }}:{{ borg_port }}/{{ borg_secrets.borg_path }}"
+  no_log: true
+
+- name: Decrypt Borg SSH key to local temp file
+  ansible.builtin.shell:
+    cmd: sops -d --extract '["data"]' {{ borg_key_sops_path }} > /tmp/borg_key_deploy
+  environment:
+    SOPS_AGE_KEY_FILE: "{{ borg_age_key_file }}"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  changed_when: false
+
+- name: Deploy Borg SSH key
+  ansible.builtin.copy:
+    src: /tmp/borg_key_deploy
+    dest: "{{ borg_key_dest }}"
+    mode: "0600"
+  no_log: true
+
+- name: Remove local temp Borg SSH key
+  ansible.builtin.file:
+    path: /tmp/borg_key_deploy
+    state: absent
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Write {{ borg_service_slug }} Borg environment file
+  ansible.builtin.copy:
+    dest: "/opt/vps-devops/scripts/{{ borg_service_slug }}-borg-env"
+    content: |
+      export BORG_REPO="{{ borg_repo }}"
+      export BORG_PASSPHRASE="{{ borg_secrets.borg_passphrase }}"
+      export BORG_RSH="{{ borg_rsh }}"
+    mode: "0600"
+  no_log: true
+
+- name: Check if {{ borg_service_slug }} Borg repo is already initialized
+  ansible.builtin.command:
+    cmd: borg info {{ borg_repo }}
+  environment:
+    BORG_PASSPHRASE: "{{ borg_secrets.borg_passphrase }}"
+    BORG_RSH: "{{ borg_rsh }}"
+  register: borg_info
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Initialize {{ borg_service_slug }} Borg repository
+  ansible.builtin.command:
+    cmd: borg init --encryption=repokey {{ borg_repo }}
+  environment:
+    BORG_PASSPHRASE: "{{ borg_secrets.borg_passphrase }}"
+    BORG_RSH: "{{ borg_rsh }}"
+  when: borg_info.rc != 0
+  no_log: true

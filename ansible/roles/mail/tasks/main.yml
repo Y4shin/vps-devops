@@ -1,0 +1,209 @@
+---
+# Outbound mail relay (docker-mailserver). Not Borg-backed. `secrets` and
+# `mail_secrets` come from inventories/prod/group_vars; the assert below enforces
+# the required secret value (replacing the old stat on mail/.env.sops.yaml).
+- name: Set mail derived facts
+  ansible.builtin.set_fact:
+    mail_domain: "{{ mail_secrets.MAIL_DOMAIN | default(secrets.domain, true) }}"
+    mail_hostname: "{{ mail_secrets.MAIL_HOSTNAME | default('mail.' ~ (mail_secrets.MAIL_DOMAIN | default(secrets.domain, true)), true) }}"
+    mail_submission_account: "{{ mail_secrets.MAIL_SUBMISSION_ACCOUNT | default('authentik@' ~ (mail_secrets.MAIL_DOMAIN | default(secrets.domain, true)), true) }}"
+    mail_postmaster_address: "{{ mail_secrets.MAIL_POSTMASTER_ADDRESS | default('postmaster@' ~ (mail_secrets.MAIL_DOMAIN | default(secrets.domain, true)), true) }}"
+    mail_authentik_from: "{{ mail_secrets.MAIL_AUTHENTIK_FROM | default('authentik@' ~ (mail_secrets.MAIL_DOMAIN | default(secrets.domain, true)), true) }}"
+  no_log: true
+
+- name: Require mail secret values
+  ansible.builtin.assert:
+    that:
+      - mail_secrets.MAIL_SUBMISSION_PASSWORD is defined
+      - (mail_secrets.MAIL_SUBMISSION_PASSWORD | trim) != ""
+    fail_msg: >-
+      mail/.env.sops.yaml must define MAIL_SUBMISSION_PASSWORD.
+  no_log: true
+
+- name: Create mail directories (deploy-owned)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0755"
+  loop:
+    - /opt/vps-devops/mail
+    - /opt/vps-devops/mail/config
+    - /opt/vps-devops/mail/config/rspamd
+    - /opt/vps-devops/mail/data
+
+- name: Create mail directories (container-managed, no ownership enforcement)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/vps-devops/mail/config/rspamd/dkim
+    - /opt/vps-devops/mail/data/mail-data
+    - /opt/vps-devops/mail/data/mail-state
+    - /opt/vps-devops/mail/data/mail-logs
+
+- name: Ensure dedicated mail network exists
+  community.docker.docker_network:
+    name: mail
+
+- name: Render mail compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vps-devops/mail/docker-compose.yml
+    mode: "0644"
+  register: mail_compose_result
+
+- name: Build mail env content
+  ansible.builtin.set_fact:
+    mail_env_content: |
+      OVERRIDE_HOSTNAME={{ mail_hostname }}
+      POSTMASTER_ADDRESS={{ mail_postmaster_address }}
+      SMTP_ONLY=1
+      PERMIT_DOCKER=connected-networks
+      ENABLE_CLAMAV=0
+      ENABLE_SPAMASSASSIN=0
+      ENABLE_FETCHMAIL=0
+      ENABLE_FAIL2BAN=0
+      ENABLE_UPDATE_CHECK=0
+      LOG_LEVEL=info
+  no_log: true
+
+- name: Build mail env hash
+  ansible.builtin.set_fact:
+    mail_env_hash: "{{ mail_env_content | hash('sha256') }}"
+  no_log: true
+
+- name: Read previous mail env hash
+  ansible.builtin.slurp:
+    src: /opt/vps-devops/mail/.env.sha256
+  register: mail_env_hash_file
+  failed_when: false
+  no_log: true
+
+- name: Decide whether mail env changed
+  ansible.builtin.set_fact:
+    mail_env_changed: "{{ (mail_env_hash_file.content | default('') | b64decode | trim) != mail_env_hash }}"
+  no_log: true
+
+- name: Deploy mail relay with temporary .env
+  block:
+    - name: Write mail .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/mail/.env
+        content: "{{ mail_env_content }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Store mail env hash
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/mail/.env.sha256
+        content: "{{ mail_env_hash }}\n"
+        mode: "0600"
+      no_log: true
+
+    - name: Recreate mail relay when config changed
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/mail
+        state: present
+        recreate: always
+      when: mail_compose_result.changed or mail_env_changed
+
+    - name: Ensure mail relay is running without forced recreate
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/mail
+        state: present
+      when: not (mail_compose_result.changed or mail_env_changed)
+
+    - name: Wait for mail relay container to start
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - ps
+          - --status
+          - running
+          - --services
+      args:
+        chdir: /opt/vps-devops/mail
+      register: mail_running_services
+      changed_when: false
+      retries: 12
+      delay: 10
+      until: "'mailserver' in (mail_running_services.stdout_lines | default([]))"
+
+    - name: Read current mail account file
+      ansible.builtin.slurp:
+        src: /opt/vps-devops/mail/config/postfix-accounts.cf
+      register: mail_accounts_file
+      failed_when: false
+      no_log: true
+
+    - name: Create submission account for application mail
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - mailserver
+          - setup
+          - email
+          - add
+          - "{{ mail_submission_account }}"
+          - "{{ mail_secrets.MAIL_SUBMISSION_PASSWORD }}"
+      args:
+        chdir: /opt/vps-devops/mail
+      register: mail_submission_account_add
+      changed_when: true
+      no_log: true
+      when: mail_submission_account not in (mail_accounts_file.content | default('') | b64decode)
+
+    - name: Find generated DKIM key files
+      ansible.builtin.find:
+        paths: /opt/vps-devops/mail/config/opendkim/keys
+        file_type: file
+        recurse: true
+        patterns:
+          - "*.private"
+      register: mail_dkim_keys
+      failed_when: false
+
+    - name: Generate DKIM keys for the mail domain
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - mailserver
+          - setup
+          - config
+          - dkim
+          - domain
+          - "{{ mail_domain }}"
+      args:
+        chdir: /opt/vps-devops/mail
+      register: mail_dkim_generate
+      changed_when: true
+      when: (mail_dkim_keys.matched | default(0)) == 0
+
+    - name: Restart mail relay after account or DKIM changes
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/mail
+        state: present
+        recreate: always
+      when:
+        - (mail_submission_account_add is defined and mail_submission_account_add.changed)
+          or (mail_dkim_generate is defined and mail_dkim_generate.changed)
+  always:
+    - name: Remove mail temporary .env
+      ansible.builtin.file:
+        path: /opt/vps-devops/mail/.env
+        state: absent
+
+    - name: Remove legacy mailserver.env if present
+      ansible.builtin.file:
+        path: /opt/vps-devops/mail/mailserver.env
+        state: absent

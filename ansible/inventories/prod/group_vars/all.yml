@@ -27,3 +27,19 @@ mail_secrets: "{{ sops_mail_secrets }}"
 # Connection secrets migrated out of the old encrypted inventory.
 ansible_host: "{{ sops_connection.ansible_host }}"
 ansible_become_password: "{{ sops_connection.ansible_become_password }}"
+
+# Global non-secret config shared across roles/playbooks (previously duplicated in
+# each playbook's `vars:`). Roles rely on these.
+repo_root: "{{ playbook_dir }}/.."
+deploy_user: deploy
+deploy_group: deploy
+borg_rsh: "ssh -i /home/deploy/.ssh/borg_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+# Service toggles — replace the old "does <svc>/.env.sops.yaml exist?" gating that
+# drove optional cross-service integration (authentik OIDC provisioning,
+# conference-tool email). All services are deployed on this host, so all true.
+mail_enabled: true
+foundry_enabled: true
+conference_tool_enabled: true
+reporting_tool_enabled: true
+n8n_enabled: true

@@ -1,0 +1,9 @@
+---
+# Defaults for the borg_target role. Callers must set:
+#   borg_service_slug  (e.g. "foundry") — names the <slug>-borg-env file
+#   borg_secrets       (dict with .borg_path and .borg_passphrase)
+# Shared globals (secrets, borg_rsh, repo_root) come from group_vars/all.
+borg_port: 23
+borg_key_sops_path: "{{ repo_root }}/borg/ssh_key.sops"
+borg_age_key_file: "{{ repo_root }}/age.key"
+borg_key_dest: /home/deploy/.ssh/borg_key

@@ -139,8 +139,6 @@ tasks:
         msg: setup:debian:trixie only supports Linux hosts
       - sh: test -f /etc/os-release && . /etc/os-release && test "$ID" = "debian" && test "$VERSION_CODENAME" = "trixie"
         msg: setup:debian:trixie requires Debian Trixie
-    vars:
-      ANSIBLE_COLLECTIONS: community.sops community.docker community.general ansible.posix
     cmds:
       - echo "Installing system packages..."
       - sudo apt-get update && sudo apt-get install -y age borgbackup gnupg pipx openssh-client git rsync sshpass
@@ -151,7 +149,7 @@ tasks:
       - pipx install ansible --include-deps
       - pipx ensurepath
       - echo "Installing Ansible collections..."
-      - ~/.local/bin/ansible-galaxy collection install --upgrade --collections-path ./collections {{.ANSIBLE_COLLECTIONS}}
+      - ~/.local/bin/ansible-galaxy collection install -r ansible/requirements.yml --collections-path ./collections
       - echo "Installing git hooks..."
       - lefthook install
       - task: check:unix

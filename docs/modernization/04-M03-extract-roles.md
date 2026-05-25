@@ -85,3 +85,42 @@ M05 merge.)
 - Helper roles + per-service roles exist; `site.yml` imports them.
 - `requirements.yml` pins collections.
 - Render-diff harness ready for M05.
+
+## Implementation notes (as built, 2026-05-25)
+
+- **Collections pinned exactly** in `ansible/requirements.yml` (sops 2.3.0,
+  docker 5.2.0, general 13.0.0, posix 2.2.0). `flake.nix` shellHook + the
+  `setup:debian:trixie` task install from it without `--upgrade`.
+- **Two shared helper roles only:** `borg_target` (Borg key + `<svc>-borg-env` +
+  repo init) and `backup_unit` (shared backups dir/lock + optional staging +
+  `<svc>-backup-env` + backup/restore scripts + systemd service/timer).
+  **No monolithic `docker_service` role** — the 3 recreate strategies (always /
+  conditional / digest) + in-block provisioning for mail & authentik made it
+  net-negative; each service role keeps its own compose/temp-env/hash logic.
+- **All 8 services are roles** (`base`, `traefik`, `mail`, `authentik`, `n8n`,
+  `witness`, `conference-tool`, `foundry`) under `ansible/roles/`. Each
+  `ansible/<svc>.yml` is now a 5-line `roles: [<svc>]` wrapper, so
+  `task deploy:<svc>` and `site.yml` (which imports the wrappers) keep working
+  unchanged. `base.yml` keeps play-level `become: true`.
+- **Templates `git mv`d** into `roles/<svc>/templates/` (byte-identical renames);
+  `n8n/workflow.json` → `roles/n8n/files/`. Backup/restore scripts STAY in
+  `scripts/` (passed as absolute `src` to `backup_unit`). Authentik branding
+  copies and blueprint discovery keep absolute `{{ repo_root }}/...` paths (they
+  reference other services' dirs).
+- **Shared globals** moved to `group_vars/all.yml`: `repo_root`, `deploy_user`,
+  `deploy_group`, `borg_rsh`.
+- **Stat-gating replaced (M02 follow-up, done):** added `*_enabled` flags
+  (`mail_enabled`, `foundry_enabled`, `conference_tool_enabled`,
+  `reporting_tool_enabled`, `n8n_enabled`, all true) to `group_vars/all.yml`.
+  Service roles validate their own secrets via `assert` (dropped the per-service
+  `stat`+`fail` on `<svc>/.env.sops.yaml`); authentik/conference-tool gate
+  cross-service integration on the flags instead of other services' file
+  existence. **The old `<svc>/.env.sops.yaml` files are now unused and can be
+  deleted in M05** (no longer needed for gating; secrets live in
+  `group_vars/all.sops.yaml`).
+- **Verified:** all 11 playbooks pass `--syntax-check`; every moved template is a
+  byte-identical git rename; every service's `env_content` block diffs clean vs
+  HEAD (only conference-tool/authentik differ by the intended `mail_enabled`
+  gate); borg-env/backup-env/systemd-unit content identical by construction;
+  lefthook sops check green. Net −476 lines. Full runtime render-parity is the
+  M05 gate.

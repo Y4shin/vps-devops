@@ -1,0 +1,14 @@
+---
+# Pinned Ansible collections — the reproducibility mechanism in lieu of a
+# containerized Execution Environment (see docs/modernization/01-README.md).
+# Versions are pinned exactly; bump deliberately. Installed into ./collections by
+# the flake devshell shellHook and by `task setup:debian:trixie`.
+collections:
+  - name: community.sops
+    version: "2.3.0"
+  - name: community.docker
+    version: "5.2.0"
+  - name: community.general
+    version: "13.0.0"
+  - name: ansible.posix
+    version: "2.2.0"

@@ -1,0 +1,114 @@
+---
+# Shared backup infrastructure: backups dir + lock, optional staging dir + env
+# file, backup/restore scripts, and the systemd service + timer. Extracted from
+# the per-service playbooks (identical except slug, schedule, and env content).
+- name: Create shared backups directory
+  ansible.builtin.file:
+    path: /opt/vps-devops/backups
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0770"
+  become: true
+
+- name: Ensure shared backup lock file is writable by deploy
+  ansible.builtin.file:
+    path: /opt/vps-devops/backups/.backup-job.lock
+    state: touch
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0660"
+  become: true
+
+- name: Create {{ backup_service_slug }} backup staging directory
+  ansible.builtin.file:
+    path: "/opt/vps-devops/backups/{{ backup_staging_subdir }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0700"
+  become: true
+  when: backup_staging_subdir | length > 0
+
+- name: Write {{ backup_service_slug }} backup environment file
+  ansible.builtin.copy:
+    dest: "{{ backup_env_dest }}"
+    content: "{{ backup_env_content }}"
+    mode: "0600"
+  no_log: true
+  when: backup_env_content | length > 0
+
+- name: Copy {{ backup_service_slug }} backup script
+  ansible.builtin.copy:
+    src: "{{ backup_script_src }}"
+    dest: "/opt/vps-devops/scripts/backup-{{ backup_service_slug }}.sh"
+    mode: "0750"
+
+- name: Copy {{ backup_service_slug }} restore script
+  ansible.builtin.copy:
+    src: "{{ backup_restore_script_src }}"
+    dest: "/opt/vps-devops/scripts/restore-{{ backup_service_slug }}.sh"
+    mode: "0750"
+
+- name: Copy extra backup scripts for {{ backup_service_slug }}
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode | default('0750') }}"
+  loop: "{{ backup_extra_scripts }}"
+  when: backup_extra_scripts | length > 0
+
+- name: Install {{ backup_service_slug }} backup systemd service
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ backup_service_slug }}-backup.service"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description={{ backup_description }}
+      Wants=network-online.target
+      After=network-online.target docker.service
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/opt/vps-devops/scripts
+      ExecStart=/bin/bash /opt/vps-devops/scripts/backup-{{ backup_service_slug }}.sh
+
+      [Install]
+      WantedBy=multi-user.target
+  become: true
+  register: backup_service_unit
+
+- name: Install {{ backup_service_slug }} backup systemd timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ backup_service_slug }}-backup.timer"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description={{ backup_timer_description }}
+
+      [Timer]
+      OnCalendar={{ backup_timer_oncalendar }}
+      Persistent=true
+      Unit={{ backup_service_slug }}-backup.service
+
+      [Install]
+      WantedBy=timers.target
+  become: true
+  register: backup_timer_unit
+
+- name: Reload systemd after {{ backup_service_slug }} backup unit changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true
+  when: backup_service_unit.changed or backup_timer_unit.changed
+
+- name: Enable and start {{ backup_service_slug }} backup timer
+  ansible.builtin.systemd_service:
+    name: "{{ backup_service_slug }}-backup.timer"
+    enabled: true
+    state: "{{ 'restarted' if backup_service_unit.changed or backup_timer_unit.changed else 'started' }}"
+  become: true

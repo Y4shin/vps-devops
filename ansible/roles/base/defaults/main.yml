@@ -1,0 +1,4 @@
+---
+deploy_uid: 999
+deploy_gid: 999
+sops_version: "3.9.4"
