@@ -1,16 +1,63 @@
 ---
 # Deploys all services. Run with: task deploy
+#
+# Each play is tagged with its service name, so a single service can be
+# deployed in isolation, e.g.:
+#     task deploy:traefik          # -> site.yml --tags traefik
+#     ansible-playbook ansible/site.yml --tags authentik
 - name: Base host configuration
-  import_playbook: base.yml
+  hosts: vps
+  gather_facts: true
+  become: true
+  tags: base
+  roles:
+    - base
+
 - name: Traefik reverse proxy
-  import_playbook: traefik.yml
+  hosts: vps
+  tags: traefik
+  roles:
+    - traefik
+
 - name: Mail relay
-  import_playbook: mail.yml
+  hosts: vps
+  tags: mail
+  roles:
+    - mail
+
 - name: Authentik IdP
-  import_playbook: authentik.yml
+  hosts: vps
+  tags: authentik
+  roles:
+    - authentik
+
+# Runs after Authentik so the headscale OIDC application/provider/group exist.
+- name: Headscale control server
+  hosts: vps
+  tags: headscale
+  roles:
+    - headscale
+
 - name: Workflow automation (n8n)
-  import_playbook: n8n.yml
+  hosts: vps
+  tags: n8n
+  roles:
+    - n8n
+
 - name: Witness
-  import_playbook: witness.yml
+  hosts: vps
+  tags: witness
+  roles:
+    - witness
+
 - name: Conference Tool
-  import_playbook: conference-tool.yml
+  hosts: vps
+  tags: conference_tool
+  roles:
+    - conference_tool
+
+- name: Foundry VTT
+  hosts: vps
+  tags: foundry
+  roles:
+    - foundry

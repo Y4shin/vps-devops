@@ -1,0 +1,125 @@
+---
+# Headscale control server (self-hosted Tailscale control plane). Borg + backup
+# unit are delegated to the shared roles; the OIDC client secret is injected via
+# the repo's ephemeral-.env model. `secrets` and `headscale_secrets` come from
+# inventories/prod/group_vars. The OIDC application/provider/group are provisioned
+# by the authentik role (headscale/authentik-blueprints/), so deploy authentik first.
+- name: Validate headscale secrets
+  ansible.builtin.assert:
+    that:
+      - headscale_secrets.OIDC_CLIENT_SECRET is defined
+      - (headscale_secrets.OIDC_CLIENT_SECRET | trim) != ""
+      - headscale_secrets.borg_path is defined
+      - (headscale_secrets.borg_path | trim) != ""
+      - headscale_secrets.borg_passphrase is defined
+      - (headscale_secrets.borg_passphrase | trim) != ""
+    fail_msg: >-
+      group_vars/all.sops.yaml (sops_headscale_secrets) must define OIDC_CLIENT_SECRET,
+      borg_path, and borg_passphrase.
+  no_log: true
+
+- name: Set up Borg target for headscale
+  ansible.builtin.include_role:
+    name: borg_target
+  vars:
+    borg_service_slug: headscale
+    borg_secrets: "{{ headscale_secrets }}"
+
+- name: Create headscale directory
+  ansible.builtin.file:
+    path: /opt/vps-devops/headscale
+    state: directory
+    mode: "0755"
+
+- name: Build headscale backup environment content
+  ansible.builtin.set_fact:
+    headscale_backup_env_content: |
+      export HS_CONTAINER={{ headscale_container }}
+      export HS_DATA_VOLUME={{ headscale_data_volume }}
+      export HS_STAGING_DIR=/opt/vps-devops/backups/headscale-staging
+      export HS_ARCHIVE_PREFIX={{ headscale_archive_prefix }}
+
+- name: Set up backup unit for headscale
+  ansible.builtin.include_role:
+    name: backup_unit
+  vars:
+    backup_service_slug: headscale
+    backup_display_name: Headscale
+    backup_timer_oncalendar: "*-*-* 03:30:00"
+    backup_staging_subdir: headscale-staging
+    backup_env_dest: /opt/vps-devops/scripts/headscale-backup-env
+    backup_env_content: "{{ headscale_backup_env_content }}"
+
+- name: Ensure headscale backup lock file is writable by deploy
+  ansible.builtin.file:
+    path: /opt/vps-devops/backups/headscale-staging.lock
+    state: touch
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_group }}"
+    mode: "0660"
+  become: true
+
+- name: Allow Headscale STUN (UDP 3478) through UFW
+  community.general.ufw:
+    rule: allow
+    port: "3478"
+    proto: udp
+    comment: "Headscale embedded DERP STUN"
+  become: true
+
+- name: Ensure proxy network exists
+  community.docker.docker_network:
+    name: proxy
+    ipam_config:
+      - subnet: "{{ secrets.proxy_subnet }}"
+
+- name: Render headscale config file
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /opt/vps-devops/headscale/config.yaml
+    mode: "0644"
+  register: headscale_config_result
+
+- name: Render headscale compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vps-devops/headscale/docker-compose.yml
+    mode: "0644"
+  register: headscale_compose_result
+
+- name: Build headscale env content
+  ansible.builtin.set_fact:
+    headscale_env_content: |
+      HEADSCALE_OIDC_CLIENT_SECRET={{ headscale_secrets.OIDC_CLIENT_SECRET }}
+  no_log: true
+
+- name: Deploy headscale with temporary .env
+  block:
+    - name: Write headscale .env
+      ansible.builtin.copy:
+        dest: /opt/vps-devops/headscale/.env
+        content: "{{ headscale_env_content }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Deploy headscale container
+      community.docker.docker_compose_v2:
+        project_src: /opt/vps-devops/headscale
+        state: present
+        recreate: "{{ 'always' if (headscale_config_result.changed or headscale_compose_result.changed) else 'auto' }}"
+
+    - name: Wait for headscale to be healthy
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/health
+        method: GET
+        status_code: 200
+      register: headscale_health
+      retries: 30
+      delay: 2
+      until: headscale_health.status == 200
+
+  always:
+    - name: Remove headscale temporary .env
+      ansible.builtin.file:
+        path: /opt/vps-devops/headscale/.env
+        state: absent

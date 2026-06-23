@@ -23,6 +23,7 @@ conference_tool_secrets: "{{ sops_conference_tool_secrets }}"
 n8n_secrets: "{{ sops_n8n_secrets }}"
 ct_n8n_secrets: "{{ sops_n8n_secrets }}"
 mail_secrets: "{{ sops_mail_secrets }}"
+headscale_secrets: "{{ sops_headscale_secrets }}"
 
 # Connection secrets migrated out of the old encrypted inventory.
 ansible_host: "{{ sops_connection.ansible_host }}"
@@ -43,3 +44,4 @@ foundry_enabled: true
 conference_tool_enabled: true
 reporting_tool_enabled: true
 n8n_enabled: true
+headscale_enabled: true

@@ -1,0 +1,40 @@
+---
+# Headscale control server defaults.
+#
+# Verify the image tag against the latest stable release before first deploy
+# (https://github.com/juanfont/headscale/releases). A wrong tag fails fast on
+# `docker pull`. After deploy, `docker exec headscale-headscale-1 headscale
+# configtest` validates the rendered config against the running binary.
+headscale_image: "headscale/headscale:0.28.0"
+headscale_container: "headscale-headscale-1"   # compose project "headscale" + service "headscale"
+headscale_data_volume: "headscale_data"        # compose volume "data" in project "headscale"
+headscale_archive_prefix: "headscale"
+
+# Server / control-plane
+headscale_server_url: "https://headscale.{{ secrets.domain }}"
+# base_domain MUST NOT be a suffix of the server_url host, or headscale refuses
+# to start. server_url host is headscale.<domain>, so the tailnet domain is
+# tailnet.<domain>.
+headscale_base_domain: "tailnet.{{ secrets.domain }}"
+headscale_log_level: "info"
+
+# Embedded DERP relay (self-hosted). STUN rides UDP 3478 directly (UFW-opened);
+# the relay itself rides server_url:443 via Traefik (WebSocket).
+headscale_derp_enabled: true
+headscale_derp_region_id: 999
+headscale_derp_region_code: "headscale"
+headscale_derp_region_name: "Headscale Embedded DERP"
+
+# Split DNS — forward internal domains to a home-LAN resolver reachable over the
+# approved subnet route, so tailnet clients (with MagicDNS on) resolve them,
+# wildcards included, since the home resolver owns the zone. Map: domain -> [IPs].
+headscale_split_dns:
+  patricplattner.com:
+    - 192.168.1.1   # home LAN resolver (OPNsense Unbound), reached via the approved 192.168.1.0/24 route
+
+# OIDC (Authentik). Identity vars are mirrored in roles/authentik/defaults so the
+# blueprint and the headscale config agree. The client secret is NOT stored here;
+# it is injected at deploy time via the ephemeral .env (HEADSCALE_OIDC_CLIENT_SECRET).
+headscale_oidc_client_id: "headscale"
+headscale_application_slug: "headscale"
+headscale_access_group: "headscale-access"

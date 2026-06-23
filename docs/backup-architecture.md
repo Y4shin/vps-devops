@@ -327,12 +327,12 @@ A matching restore script would ideally:
 
 For current behavior, prefer these files over older prose docs:
 
-- `ansible/witness.yml`
+- `ansible/roles/witness/`
 - `scripts/backup-reporting-tool.sh`
 - `scripts/restore-reporting-tool.sh`
-- `ansible/authentik.yml`
-- `ansible/foundry.yml`
+- `ansible/roles/authentik/`
+- `ansible/roles/foundry/`
 - `scripts/backup-foundry.sh`
 - `scripts/restore-foundry.sh`
-- `ansible/traefik.yml`
-- `ansible/base.yml`
+- `ansible/roles/traefik/`
+- `ansible/roles/base/`

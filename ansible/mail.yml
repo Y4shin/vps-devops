@@ -1,5 +1,0 @@
----
-- name: Deploy outbound mail relay
-  hosts: vps
-  roles:
-    - mail

@@ -16,14 +16,23 @@ fi
 
 playbook="${1:-}"
 if [[ -z "$playbook" ]]; then
-  echo "Usage: $0 <playbook-path>" >&2
+  echo "Usage: $0 <playbook-path> [extra ansible-playbook args...]" >&2
   exit 1
 fi
+shift
 
 if [[ ! -f "${repo_root}/${playbook}" ]]; then
   echo "Playbook not found: ${playbook}" >&2
   exit 1
 fi
+
+# Any remaining args (e.g. --tags traefik) are appended to the
+# ansible-playbook invocation, shell-quoted so they survive the sops
+# exec-file command string.
+extra_args=""
+for arg in "$@"; do
+  extra_args+=" $(printf '%q' "$arg")"
+done
 
 (
   cd "$repo_root"
@@ -36,5 +45,5 @@ fi
   # which inherits SOPS_AGE_KEY_FILE from this command's environment).
   SOPS_AGE_KEY_FILE="$age_key_file" \
     sops exec-file --no-fifo deploy_ssh_private_key.sops \
-    "chmod 600 {} && \"${ansible_playbook_bin}\" \"${playbook}\" -i ansible/inventories/prod -e ansible_ssh_private_key_file={}"
+    "chmod 600 {} && \"${ansible_playbook_bin}\" \"${playbook}\" -i ansible/inventories/prod -e ansible_ssh_private_key_file={}${extra_args}"
 )

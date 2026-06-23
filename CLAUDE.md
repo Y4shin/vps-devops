@@ -23,11 +23,13 @@ Read these before making non-trivial changes:
 - `docs/backup-architecture.md`
 - `Taskfile.yml`
 
-For service-specific work, also read:
+For service-specific work, also read the relevant role and the orchestrating
+`site.yml` (each service is a tagged play; deploy one with `--tags <service>`):
 
-- `ansible/authentik.yml`
-- `ansible/witness.yml`
-- `ansible/traefik.yml`
+- `ansible/site.yml`
+- `ansible/roles/authentik/`
+- `ansible/roles/witness/`
+- `ansible/roles/traefik/`
 
 ## Working Rules
 
@@ -48,6 +50,7 @@ task deploy:base
 task deploy:traefik
 task deploy:authentik
 task deploy:witness
+task deploy:headscale
 ```
 
 ### Backup Operations
@@ -60,6 +63,21 @@ task witness:backup:restore
 task authentik:backup:perform
 task authentik:backup:info
 task authentik:backup:restore
+
+task headscale:backup:perform
+task headscale:backup:info
+task headscale:backup:restore
+```
+
+### Headscale Admin (CLI via `docker exec`)
+
+```bash
+task headscale:user:create NAME=home
+task headscale:preauthkey:create USER=home
+task headscale:nodes
+task headscale:routes
+task headscale:routes:approve ID=1 ROUTES=192.168.1.0/24
+task headscale:configtest
 ```
 
 ### SSH Helpers
@@ -82,6 +100,7 @@ helper scripts:
   top-level dicts: `sops_secrets` (global infra), `sops_authentik_secrets`,
   `sops_reporting_tool_secrets` (Witness), `sops_foundry_secrets`,
   `sops_conference_tool_secrets`, `sops_n8n_secrets`, `sops_mail_secrets`,
+  `sops_headscale_secrets` (`OIDC_CLIENT_SECRET`, `borg_path`, `borg_passphrase`),
   `sops_connection` (`ansible_host`, `ansible_become_password`).
 - Plaintext indirection (logical names → `sops_*` sources):
   `ansible/inventories/prod/group_vars/all.yml`.
@@ -104,4 +123,10 @@ Never commit decrypted material.
 - `scripts/restore-authentik.sh`
 - `scripts/backup-reporting-tool.sh`
 - `scripts/restore-reporting-tool.sh`
+- `ansible/roles/headscale/` (control server role)
+- `headscale/authentik-blueprints/30-oidc.yaml.j2` (OIDC app/provider/group)
+- `docs/headscale.md` (operator guide), `docs/headscale-plan.md` (design record)
+- `scripts/backup-headscale.sh`
+- `scripts/restore-headscale.sh`
+
 

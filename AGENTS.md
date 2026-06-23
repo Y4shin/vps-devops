@@ -99,9 +99,10 @@ That pulls inside the submodule and stages the new gitlink in the superproject.
 - `Taskfile.yml`
 - `docs/setup-guide.md`
 - `docs/backup-architecture.md`
-- `ansible/base.yml`
-- `ansible/traefik.yml`
-- `ansible/authentik.yml`
-- `ansible/witness.yml`
+- `ansible/site.yml`
+- `ansible/roles/base/`
+- `ansible/roles/traefik/`
+- `ansible/roles/authentik/`
+- `ansible/roles/witness/`
 - `scripts/local/submodule.sh`
 

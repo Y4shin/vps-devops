@@ -1,5 +1,0 @@
----
-- name: Deploy Foundry VTT
-  hosts: vps
-  roles:
-    - foundry

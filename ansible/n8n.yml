@@ -1,5 +1,0 @@
----
-- name: Deploy n8n
-  hosts: vps
-  roles:
-    - n8n

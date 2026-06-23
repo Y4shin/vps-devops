@@ -18,7 +18,7 @@ tasks:
   deploy:base:
     desc: Configure base host services via deploy user + inventory-configured root escalation
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/base.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags base
 
   bootstrap:askpass:
     desc: One-time server setup using password auth (for servers without SSH key)
@@ -33,12 +33,12 @@ tasks:
   deploy:traefik:
     desc: Deploy Traefik only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/traefik.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags traefik
 
   deploy:authentik:
     desc: Deploy Authentik only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/authentik.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags authentik
 
   authentik:logs:
     desc: Tail Authentik server container logs
@@ -54,22 +54,22 @@ tasks:
   deploy:witness:
     desc: Deploy Witness only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/witness.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags witness
 
   deploy:foundry:
     desc: Deploy Foundry VTT only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/foundry.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags foundry
 
   deploy:conference-tool:
     desc: Deploy Conference Tool only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/conference-tool.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags conference_tool
 
   deploy:n8n:
     desc: Deploy n8n only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/n8n.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags n8n
 
   ssh:n8n:
     desc: SSH into the n8n directory with a temporary .env
@@ -77,10 +77,21 @@ tasks:
     cmds:
       - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/n8n "" ./scripts/local/env-builders/n8n.sh
 
+  deploy:headscale:
+    desc: Deploy Headscale only
+    cmds:
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags headscale
+
+  ssh:headscale:
+    desc: SSH into the headscale directory with a temporary .env
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/headscale "" ./scripts/local/env-builders/headscale.sh
+
   deploy:mail:
     desc: Deploy outbound mail relay only
     cmds:
-      - bash ./scripts/local/run-playbook.sh ansible/mail.yml
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags mail
 
   all:
     desc: "Fresh-server flow: bootstrap, base config, then service deploy"
@@ -371,6 +382,69 @@ tasks:
             echo "Update available! Run: task deploy:conference-tool"
           fi
         '
+
+  headscale:logs:
+    desc: Tail Headscale container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f headscale-headscale-1
+
+  headscale:configtest:
+    desc: Validate the deployed headscale config against the running binary
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker exec headscale-headscale-1 headscale configtest
+
+  headscale:users:
+    desc: List headscale users
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker exec headscale-headscale-1 headscale users list
+
+  headscale:user:create:
+    desc: "Create a headscale user. Usage: task headscale:user:create NAME=home"
+    requires:
+      vars: [NAME]
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker exec headscale-headscale-1 headscale users create {{.NAME}}
+
+  headscale:preauthkey:create:
+    desc: "Create a pre-auth key for a user. Usage: task headscale:preauthkey:create USER=home [EXPIRATION=1h] [REUSABLE=1]"
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "docker exec headscale-headscale-1 headscale preauthkeys create --user {{.USER}} --expiration {{if .EXPIRATION}}{{.EXPIRATION}}{{else}}1h{{end}}{{if .REUSABLE}} --reusable{{end}}"
+    requires:
+      vars: [USER]
+
+  headscale:nodes:
+    desc: List headscale nodes (machines)
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker exec headscale-headscale-1 headscale nodes list
+
+  headscale:routes:
+    desc: List advertised/approved subnet routes
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker exec headscale-headscale-1 headscale nodes list-routes
+
+  headscale:routes:approve:
+    desc: "Approve subnet routes for a node. Usage: task headscale:routes:approve ID=1 ROUTES=192.168.1.0/24"
+    requires:
+      vars: [ID, ROUTES]
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "docker exec headscale-headscale-1 headscale nodes approve-routes --identifier {{.ID}} --routes {{.ROUTES}}"
+
+  headscale:backup:info:
+    desc: Show Borg repo info and archive list for the headscale backup repo
+    cmds:
+      - bash ./scripts/local/headscale-backup-info.sh
+
+  headscale:backup:perform:
+    desc: SSH to the VPS and run the headscale backup script
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./backup-headscale.sh"
+
+  headscale:backup:restore:
+    desc: "SSH to the VPS and run the headscale restore script. Optionally pass ARCHIVE=<borg-archive-name>"
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh "cd /opt/vps-devops/scripts && bash ./restore-headscale.sh {{if .ARCHIVE}}{{.ARCHIVE}}{{end}}"
 
   witness:up:
     desc: Start or recreate the Witness stack with a temporary env file

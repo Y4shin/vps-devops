@@ -84,6 +84,10 @@ sops_mail_secrets:
 sops_connection:
     ansible_host: ENC[AES256_GCM,data:++z89zXDncEd5ZK+T8g=,iv:+H9Xyb8WIYDmE2fvOJSmi1csbsEFm8mVYfPKIepsHXM=,tag:uiBA0t2taCBw5EJPwH8VrQ==,type:str]
     ansible_become_password: ENC[AES256_GCM,data:nBPcPPJKnDw+Ln+HRBPBAlNh8VQ=,iv:YVjAE8nOnDT5kErr/yJdBGl6NStlLwRm/s8JUveM+f4=,tag:H80JDZd726qBh1e3F995Vw==,type:str]
+sops_headscale_secrets:
+    OIDC_CLIENT_SECRET: ENC[AES256_GCM,data:+m1nZkIoTvUFfd/5LSCLpQzXdDEJNOwb+hdYis1p17+KD9WYMbqPK2hjlyZmZiikDwkFFxxtn9ENwd1nKy0gYw==,iv:1X9m6QQ4gXFh/bjeKbUnjaD+40Ni/DuBJL7ZP7rCTh4=,tag:TPCsRh4aG1T19VdSD266kw==,type:str]
+    borg_path: ENC[AES256_GCM,data:9q3ArYpVBzy20B4=,iv:1l5fv1qrO/6CqWzmQtYSw6Jftu8Jh5oGleFsgDI9yoA=,tag:SDtPmGMk/3LCd840bF5m5Q==,type:str]
+    borg_passphrase: ENC[AES256_GCM,data:6ers2TAU2SUoUGtDQWpv3n1Jt2txgYTAlWMfgSYg2b1eTvcUQFb+Dwb6UCIlC+dDDbgH0CpCKiZ97Dfr70uYcg==,iv:v0X5zVJ0mmc7w9E5MuKZgSjuHR3cg0kc+H+ALurSm8w=,tag:I0yJii8NSE3t7G0WId7FtQ==,type:str]
 sops:
     age:
         - recipient: age1tyq0ywrxqmrk0lssghdqwult6xmzlthqj3kdthu8qqqdpxew840slxmsrg
@@ -95,8 +99,8 @@ sops:
             b3FPTEc5cmFVekdCb2grU0czQktzVXMKtYRpC/VwxEKVCKBCV8w2MadMCwEdCNzt
             FN9yblY254qgrto2ur2Ow0lxgYcM6fByalM+uN+MlkvSykov3Y8pYA==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-05-25T17:06:37Z"
-    mac: ENC[AES256_GCM,data:jvmdGnkHiM4eHAq6hYje0WcFmzntJ/mjk6RaPA75ISwAdtgk6ogZkxNgbiA2C4hOOAQVjGuERLg5//AHje7kvFathbFdbYNzsXxrsbQiFsLHVwsvDpOPdlwTa5UT0Ak0ug4HcORucs0pGR8jspDD/gkxFGb5Y33N4Gd2/xAmkNc=,iv:ZjEfWqBmEsLUyTsfxYU/cFWjdT/YrqUYjRldyAnqDKo=,tag:gGGrO6Z7teY3EjUM5o56Eg==,type:str]
+    lastmodified: "2026-06-03T14:04:30Z"
+    mac: ENC[AES256_GCM,data:vTz+VpP2ykYDJRSpmaVh6VVgENEwhPNmo4LpohIfAk0ZTD1emfNFHcgpqfzmjr/hWyT5iqY8oh1EhlyYidI990Uy4Xo+1Ce4Jwi7WdTjkQmYiHHSYpX9vT39dHdGlKx8RbZO3WxNQiFlnv1I2YyAi1PV+ozV6FkKRbb0GhED+Oc=,iv:HwU/6jT0zvnJo7e2raMd+wIHyUNurvtbeNkSrLQ8C+E=,tag:wsgtirw4HBVHKO4OT1RIpA==,type:str]
     pgp:
         - created_at: "2026-05-25T17:06:37Z"
           enc: |-

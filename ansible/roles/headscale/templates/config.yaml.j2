@@ -1,0 +1,104 @@
+# Headscale control-server config — rendered by ansible/roles/headscale.
+# SECRET-FREE on purpose: the OIDC client secret is supplied at runtime via the
+# HEADSCALE_OIDC_CLIENT_SECRET environment variable (the ephemeral .env), so this
+# file can persist on disk without holding a secret.
+#
+# Validate after deploy: docker exec {{ headscale_container }} headscale configtest
+
+server_url: {{ headscale_server_url }}
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443      # local only; we administer via `docker exec`
+grpc_allow_insecure: false
+
+# TLS is terminated at Traefik; headscale speaks plain HTTP behind it.
+tls_cert_path: ""
+tls_key_path: ""
+
+# Only honour forwarded client-IP headers from Traefik (the docker proxy network)
+# and localhost.
+trusted_proxies:
+  - {{ secrets.proxy_subnet }}
+  - 127.0.0.1/32
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    enabled: {{ headscale_derp_enabled | lower }}
+    region_id: {{ headscale_derp_region_id }}
+    region_code: "{{ headscale_derp_region_code }}"
+    region_name: "{{ headscale_derp_region_name }}"
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+{% if secrets.vps_ipv4 is defined and (secrets.vps_ipv4 | trim) != "" %}
+    ipv4: {{ secrets.vps_ipv4 }}
+{% endif %}
+{% if secrets.vps_ipv6 is defined and (secrets.vps_ipv6 | trim) != "" %}
+    ipv6: {{ secrets.vps_ipv6 }}
+{% endif %}
+  # Fully self-hosted: no external DERP map. To add public Tailscale relays as a
+  # fallback, set: urls: ["https://controlplane.tailscale.com/derpmap/default"].
+  urls: []
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 24h
+
+disable_check_updates: false
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+
+log:
+  level: {{ headscale_log_level }}
+  format: text
+
+dns:
+  magic_dns: true
+  base_domain: {{ headscale_base_domain }}
+  override_local_dns: true
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 1.0.0.1
+{% if headscale_split_dns %}
+    # Split DNS: queries for these domains go to the listed internal resolvers
+    # (reachable over approved subnet routes); the resolver owns the records.
+    split:
+{% for domain, servers in headscale_split_dns.items() %}
+      {{ domain }}:
+{% for server in servers %}
+        - {{ server }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+  search_domains: []
+
+oidc:
+  # Don't block startup on a transient Authentik outage; OIDC logins just fail
+  # until it's back.
+  only_start_if_oidc_is_available: false
+  issuer: https://authentik.{{ secrets.domain }}/application/o/{{ headscale_application_slug }}/
+  client_id: {{ headscale_oidc_client_id }}
+  # client_secret comes from $HEADSCALE_OIDC_CLIENT_SECRET (ephemeral .env / env_file).
+  scope:
+    - openid
+    - profile
+    - email
+  pkce:
+    enabled: true
+    method: S256
+  # Optionally hard-gate on the Authentik group (defence in depth alongside the
+  # blueprint policy binding):
+  # allowed_groups:
+  #   - {{ headscale_access_group }}

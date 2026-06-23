@@ -1,6 +1,6 @@
 ---
 # Base host configuration after the initial bootstrap. Run with play-level
-# become: true (see the base.yml wrapper). deploy_user/deploy_group come from
+# become: true (see the base play in site.yml). deploy_user/deploy_group come from
 # group_vars; deploy_uid/gid and sops_version are role defaults.
 - name: Enable Ubuntu universe repository
   ansible.builtin.apt_repository:

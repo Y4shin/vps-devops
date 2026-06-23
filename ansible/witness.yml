@@ -1,5 +1,0 @@
----
-- name: Deploy Witness
-  hosts: vps
-  roles:
-    - witness

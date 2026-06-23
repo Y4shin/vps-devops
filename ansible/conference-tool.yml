@@ -1,5 +1,0 @@
----
-- name: Deploy Conference Tool
-  hosts: vps
-  roles:
-    - conference_tool

@@ -54,6 +54,17 @@
   when: conference_tool_enabled
   no_log: true
 
+- name: Require headscale OIDC client secret for Authentik blueprint rendering
+  ansible.builtin.assert:
+    that:
+      - headscale_secrets.OIDC_CLIENT_SECRET is defined
+      - (headscale_secrets.OIDC_CLIENT_SECRET | trim) != ""
+    fail_msg: >-
+      group_vars/all.sops.yaml (sops_headscale_secrets) must define OIDC_CLIENT_SECRET
+      so Authentik can render the headscale OIDC application.
+  when: headscale_enabled | default(true)
+  no_log: true
+
 - name: Discover Authentik blueprint files in the repo
   ansible.builtin.find:
     paths: "{{ repo_root }}"

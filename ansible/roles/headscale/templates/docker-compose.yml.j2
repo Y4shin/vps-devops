@@ -1,0 +1,46 @@
+services:
+  headscale:
+    image: {{ headscale_image }}
+    restart: unless-stopped
+    command: serve
+    # The ephemeral .env supplies HEADSCALE_OIDC_CLIENT_SECRET (viper binds
+    # HEADSCALE_-prefixed env vars onto config keys, overriding oidc.client_secret).
+    env_file: .env
+    dns:
+      - {{ secrets.proxy_dns_ip }}
+    ports:
+      # Local-only publish so the ansible health-wait (and local debugging) can
+      # reach the control API. Traefik reaches :8080 over the proxy network, not
+      # this host port.
+      - "127.0.0.1:8080:8080"
+      # STUN for the embedded DERP server. Must be a direct host port — UDP cannot
+      # traverse Traefik. Gated by the UFW rule in the role.
+      - "0.0.0.0:3478:3478/udp"
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - ./config.yaml:/etc/headscale/config.yaml:ro
+      - data:/var/lib/headscale
+    # No in-container healthcheck: the official image is minimal and may lack a
+    # shell/wget, and `headscale health` availability varies by version. The role
+    # gates readiness with an ansible uri poll against /health instead.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      # Control plane + OIDC callback + DERP-over-HTTPS, all on one router.
+      # NOTE: deliberately NO forward-auth middleware — this is a machine API
+      # spoken by Tailscale clients, and headscale is itself the OIDC client.
+      - "traefik.http.routers.headscale.rule=Host(`headscale.{{ secrets.domain }}`)"
+      - "traefik.http.routers.headscale.entrypoints=websecure"
+      - "traefik.http.routers.headscale.tls.certresolver=letsencrypt"
+      - "traefik.http.services.headscale.loadbalancer.server.port=8080"
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal: {}
+
+volumes:
+  data:
