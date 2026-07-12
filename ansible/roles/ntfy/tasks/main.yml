@@ -79,9 +79,8 @@
 - name: Create ntfy admin user
   ansible.builtin.shell:
     cmd: |
-      set -o pipefail
-      echo '{{ ntfy_secrets.admin_password }}' \
-        | docker compose exec -T ntfy ntfy user add \
+      NTFY_PASSWORD='{{ ntfy_secrets.admin_password }}' \
+        docker compose exec -T ntfy ntfy user add \
           --role=admin '{{ ntfy_secrets.admin_user }}'
     executable: /bin/bash
     chdir: /opt/vps-devops/ntfy
