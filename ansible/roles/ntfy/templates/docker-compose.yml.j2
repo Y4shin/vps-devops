@@ -1,0 +1,38 @@
+services:
+  ntfy:
+    image: {{ ntfy_image }}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:{{ ntfy_internal_port }}:{{ ntfy_internal_port }}"
+    networks:
+      - proxy
+      - internal
+    volumes:
+      - config:/etc/ntfy
+      - data:/var/lib/ntfy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:{{ ntfy_internal_port }}/health || exit 1"]
+      start_period: 15s
+      interval: 30s
+      retries: 5
+      timeout: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      # ── ntfy Web UI + API ───────────────────────────────────────────────────
+      - "traefik.http.routers.ntfy.rule=Host(`ntfy.{{ secrets.domain }}`)"
+      - "traefik.http.routers.ntfy.entrypoints=websecure"
+      - "traefik.http.routers.ntfy.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.ntfy.service=ntfy"
+      # ── Backend service ──────────────────────────────────────────────────────
+      - "traefik.http.services.ntfy.loadbalancer.server.port={{ ntfy_internal_port }}"
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal: {}
+
+volumes:
+  config:
+  data:

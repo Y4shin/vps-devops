@@ -1,0 +1,9 @@
+---
+ntfy_image: binwiederhier/ntfy:latest
+ntfy_internal_port: 2586
+# Overridable settings that don't need to be secrets
+ntfy_auth_default_access: deny-all
+ntfy_cache_duration: "12h"
+# Tokens are declared in sops_ntfy_secrets.ntfy_tokens as:
+#   - label: ci-cd
+#     permissions: write-only

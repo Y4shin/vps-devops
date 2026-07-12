@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 env:
   ANSIBLE_CONFIG: ./ansible.cfg
@@ -26,7 +26,7 @@ tasks:
       - bash ./scripts/local/bootstrap.sh askpass
 
   deploy:
-    desc: Deploy all services (Traefik + Authentik + Witness)
+    desc: Deploy all services (Traefik + Authentik + Witness + ntfy)
     cmds:
       - bash ./scripts/local/run-playbook.sh ansible/site.yml
 
@@ -70,6 +70,28 @@ tasks:
     desc: Deploy n8n only
     cmds:
       - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags n8n
+
+  deploy:ntfy:
+    desc: Deploy ntfy push notification service only
+    cmds:
+      - bash ./scripts/local/run-playbook.sh ansible/site.yml --tags ntfy
+
+  ssh:ntfy:
+    desc: SSH into the ntfy directory with a temporary .env
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-shell.sh /opt/vps-devops/ntfy "" ./scripts/local/env-builders/ntfy.sh
+
+  ntfy:logs:
+    desc: Tail ntfy container logs
+    interactive: true
+    cmds:
+      - bash ./scripts/local/ssh-run.sh docker logs --tail 100 -f ntfy-ntfy-1
+
+  ntfy:tokens:
+    desc: Show the generated ntfy API tokens stored on the server
+    cmds:
+      - bash ./scripts/local/ssh-run.sh cat /opt/vps-devops/ntfy/tokens.json
 
   ssh:n8n:
     desc: SSH into the n8n directory with a temporary .env
@@ -525,7 +547,7 @@ tasks:
         [ -n "$FILE" ] && sops -d "$FILE" | less
 
   secrets:extract:
-    desc: "Extract one value from an encrypted file. Usage: task secrets:extract FILE=ansible/inventories/prod/group_vars/all.sops.yaml TARGET='[\"sops_secrets\"][\"domain\"]'"
+    desc: 'Extract one value from an encrypted file. Usage: task secrets:extract FILE=ansible/inventories/prod/group_vars/all.sops.yaml TARGET=''["sops_secrets"]["domain"]'''
     preconditions:
       - sh: test -n "{{.FILE}}"
         msg: secrets:extract requires FILE=...

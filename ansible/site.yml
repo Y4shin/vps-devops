@@ -25,6 +25,12 @@
   roles:
     - mail
 
+- name: Ntfy push notification service
+  hosts: vps
+  tags: ntfy
+  roles:
+    - ntfy
+
 - name: Authentik IdP
   hosts: vps
   tags: authentik

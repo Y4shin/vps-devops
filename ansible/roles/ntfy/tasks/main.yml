@@ -1,0 +1,206 @@
+---
+# ntfy.sh push notification service. Not Borg-backed.
+#
+# `secrets` and `ntfy_secrets` come from inventories/prod/group_vars.
+#
+# ntfy uses its own token-based auth. Auth settings (admin user, API tokens,
+# topic access rules) are declared in sops_ntfy_secrets. Generated token
+# values are stored on the VPS at /opt/vps-devops/ntfy/tokens.json so they
+# can be retrieved after the first deploy.
+- name: Validate ntfy secrets
+  ansible.builtin.assert:
+    that:
+      - ntfy_secrets.admin_user is defined
+      - (ntfy_secrets.admin_user | trim) != ""
+      - ntfy_secrets.admin_password is defined
+      - (ntfy_secrets.admin_password | trim) != ""
+    fail_msg: >-
+      group_vars/all.sops.yaml (sops_ntfy_secrets) must define
+      admin_user and admin_password.
+  no_log: true
+
+- name: Create ntfy directory
+  ansible.builtin.file:
+    path: /opt/vps-devops/ntfy
+    state: directory
+    mode: "0755"
+
+- name: Ensure proxy network exists
+  community.docker.docker_network:
+    name: proxy
+    ipam_config:
+      - subnet: "{{ secrets.proxy_subnet }}"
+
+- name: Render ntfy server config
+  ansible.builtin.template:
+    src: server.yml.j2
+    dest: /opt/vps-devops/ntfy/server.yml
+    mode: "0644"
+
+- name: Render ntfy compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vps-devops/ntfy/docker-compose.yml
+    mode: "0644"
+
+# ── Deploy the container ─────────────────────────────────────────────────
+
+- name: Stage server.yml for volume seeding
+  ansible.builtin.file:
+    path: /opt/vps-devops/ntfy/config
+    state: directory
+    mode: "0755"
+
+- name: Copy server.yml into staging directory
+  ansible.builtin.copy:
+    src: /opt/vps-devops/ntfy/server.yml
+    dest: /opt/vps-devops/ntfy/config/server.yml
+    remote_src: true
+    mode: "0644"
+
+- name: Start ntfy to populate volumes
+  community.docker.docker_compose_v2:
+    project_src: /opt/vps-devops/ntfy
+    state: present
+    recreate: always
+
+- name: Wait for ntfy to be healthy
+  ansible.builtin.uri:
+    url: http://127.0.0.1:{{ ntfy_internal_port }}/health
+    method: GET
+    status_code: 200
+  register: ntfy_health
+  retries: 15
+  delay: 5
+  until: ntfy_health.status == 200
+
+- name: Clean up staged config directory
+  ansible.builtin.file:
+    path: /opt/vps-devops/ntfy/config
+    state: absent
+
+# ── Seed auth DB ──────────────────────────────────────────────────────────
+
+- name: Check if admin user already exists
+  ansible.builtin.shell:
+    cmd: |
+      docker compose exec -T ntfy ntfy user list 2>/dev/null \
+        | grep -qw '{{ ntfy_secrets.admin_user }}'
+    executable: /bin/bash
+    chdir: /opt/vps-devops/ntfy
+  register: ntfy_admin_exists
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create ntfy admin user
+  ansible.builtin.shell:
+    cmd: |
+      echo '{{ ntfy_secrets.admin_password }}' \
+        | docker compose exec -T ntfy ntfy user add \
+          --role=admin '{{ ntfy_secrets.admin_user }}'
+    executable: /bin/bash
+    chdir: /opt/vps-devops/ntfy
+  changed_when: true
+  no_log: true
+  when: ntfy_admin_exists.rc != 0
+
+# ── Configure access rules ────────────────────────────────────────────────
+
+- name: Apply ntfy topic access rules
+  ansible.builtin.shell:
+    cmd: |
+      docker compose exec -T ntfy ntfy access \
+        '{{ item.user }}' '{{ item.topic }}' '{{ item.access }}'
+    executable: /bin/bash
+    chdir: /opt/vps-devops/ntfy
+  changed_when: true
+  no_log: true
+  loop: "{{ ntfy_secrets.ntfy_access | default([]) }}"
+
+# ── Create API tokens (idempotent via server-side script) ────────────────
+
+- name: Run ntfy token seeding script
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+
+      # Paths on the VPS
+      TOKENS_FILE="/opt/vps-devops/ntfy/tokens.json"
+      ADMIN_USER='{{ ntfy_secrets.admin_user }}'
+
+      # Parse token declarations from SOPS (JSON array passed via here-doc)
+      TOKENS_JSON=$(cat <<'SOPS_EOF'
+      {{ ntfy_secrets.ntfy_tokens | default([]) | to_json }}
+      SOPS_EOF
+      )
+
+      # Load existing tokens (empty dict if first run)
+      if [ -f "$TOKENS_FILE" ]; then
+        declare -A EXISTING
+        while IFS== read -r key value; do
+          EXISTING["$key"]="$value"
+        done < <(python3 -c "
+      import json, sys
+      d = json.load(open('$TOKENS_FILE'))
+      for k, v in d.items():
+          print(f'{k}={v}')
+      ")
+      else
+        declare -A EXISTING=()
+      fi
+
+      CHANGED=false
+      UPDATED_JSON="{"
+
+      TOKENS_COUNT=$(echo "$TOKENS_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+      for i in $(seq 0 $((TOKENS_COUNT - 1))); do
+        LABEL=$(echo "$TOKENS_JSON" | python3 -c "
+      import json,sys
+      tokens = json.load(sys.stdin)
+      print(tokens[$i]['label'])
+      ")
+        PERMS=$(echo "$TOKENS_JSON" | python3 -c "
+      import json,sys
+      tokens = json.load(sys.stdin)
+      print(tokens[$i]['permissions'])
+      ")
+
+        # Check if token already exists on the server (by label)
+        if [[ -v "EXISTING[$LABEL]" ]]; then
+          UPDATED_JSON+="\"$LABEL\":\"${EXISTING[$LABEL]}\","
+          continue
+        fi
+
+        # Create token — output looks like: "token tk_xxxxxxxx"
+        TOKEN_OUTPUT=$(docker compose exec -T ntfy ntfy token add \
+          --user="$ADMIN_USER" \
+          --label="$LABEL" \
+          "$PERMS" 2>/dev/null | grep -oP 'tk_[a-zA-Z0-9]+' | tail -1)
+
+        if [ -n "$TOKEN_OUTPUT" ]; then
+          UPDATED_JSON+="\"$LABEL\":\"$TOKEN_OUTPUT\","
+          CHANGED=true
+          echo "created token:$LABEL"
+        else
+          echo "WARN: failed to create token '$LABEL'" >&2
+        fi
+      done
+
+      # Write updated tokens file
+      UPDATED_JSON="${UPDATED_JSON%,}"
+      UPDATED_JSON+="}"
+      echo "$UPDATED_JSON" | python3 -m json.tool > "$TOKENS_FILE" 2>/dev/null \
+        || echo "$UPDATED_JSON" > "$TOKENS_FILE"
+      chmod 0600 "$TOKENS_FILE"
+
+      if [ "$CHANGED" = true ]; then
+        echo "tokens_created=true"
+      else
+        echo "tokens_created=false"
+      fi
+    executable: /bin/bash
+    chdir: /opt/vps-devops/ntfy
+  register: ntfy_token_seed
+  changed_when: "'tokens_created=true' in ntfy_token_seed.stdout"
+  no_log: true
