@@ -84,6 +84,7 @@
 - name: Check if admin user already exists
   ansible.builtin.shell:
     cmd: |
+      set -o pipefail
       docker compose exec -T ntfy ntfy user list 2>/dev/null \
         | grep -qw '{{ ntfy_secrets.admin_user }}'
     executable: /bin/bash
@@ -96,6 +97,7 @@
 - name: Create ntfy admin user
   ansible.builtin.shell:
     cmd: |
+      set -o pipefail
       echo '{{ ntfy_secrets.admin_password }}' \
         | docker compose exec -T ntfy ntfy user add \
           --role=admin '{{ ntfy_secrets.admin_user }}'
