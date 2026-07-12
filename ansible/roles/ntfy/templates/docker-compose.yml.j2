@@ -1,6 +1,7 @@
 services:
   ntfy:
     image: {{ ntfy_image }}
+    command: serve
     restart: unless-stopped
     ports:
       - "127.0.0.1:{{ ntfy_internal_port }}:{{ ntfy_internal_port }}"
@@ -8,7 +9,7 @@ services:
       - proxy
       - internal
     volumes:
-      - config:/etc/ntfy
+      - ./server.yml:/etc/ntfy/server.yml:ro
       - data:/var/lib/ntfy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:{{ ntfy_internal_port }}/health || exit 1"]
@@ -34,5 +35,4 @@ networks:
   internal: {}
 
 volumes:
-  config:
   data:

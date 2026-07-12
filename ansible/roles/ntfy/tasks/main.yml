@@ -45,20 +45,7 @@
 
 # ── Deploy the container ─────────────────────────────────────────────────
 
-- name: Stage server.yml for volume seeding
-  ansible.builtin.file:
-    path: /opt/vps-devops/ntfy/config
-    state: directory
-    mode: "0755"
-
-- name: Copy server.yml into staging directory
-  ansible.builtin.copy:
-    src: /opt/vps-devops/ntfy/server.yml
-    dest: /opt/vps-devops/ntfy/config/server.yml
-    remote_src: true
-    mode: "0644"
-
-- name: Start ntfy to populate volumes
+- name: Start ntfy
   community.docker.docker_compose_v2:
     project_src: /opt/vps-devops/ntfy
     state: present
@@ -73,11 +60,6 @@
   retries: 15
   delay: 5
   until: ntfy_health.status == 200
-
-- name: Clean up staged config directory
-  ansible.builtin.file:
-    path: /opt/vps-devops/ntfy/config
-    state: absent
 
 # ── Seed auth DB ──────────────────────────────────────────────────────────
 
