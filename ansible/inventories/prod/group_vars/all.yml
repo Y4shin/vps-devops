@@ -24,6 +24,7 @@ n8n_secrets: "{{ sops_n8n_secrets }}"
 ct_n8n_secrets: "{{ sops_n8n_secrets }}"
 mail_secrets: "{{ sops_mail_secrets }}"
 headscale_secrets: "{{ sops_headscale_secrets }}"
+ntfy_secrets: "{{ sops_ntfy_secrets }}"
 
 # Connection secrets migrated out of the old encrypted inventory.
 ansible_host: "{{ sops_connection.ansible_host }}"
