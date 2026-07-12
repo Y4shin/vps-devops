@@ -79,9 +79,8 @@
 - name: Create ntfy admin user
   ansible.builtin.shell:
     cmd: |
-      NTFY_PASSWORD='{{ ntfy_secrets.admin_password }}' \
-        docker compose exec -T ntfy ntfy user add \
-          --role=admin '{{ ntfy_secrets.admin_user }}'
+      docker compose exec -T -e NTFY_PASSWORD='{{ ntfy_secrets.admin_password }}' \
+        ntfy ntfy user add --role=admin '{{ ntfy_secrets.admin_user }}'
     executable: /bin/bash
     chdir: /opt/vps-devops/ntfy
   changed_when: true
@@ -157,9 +156,8 @@
 
         # Create token — output looks like: "token tk_xxxxxxxx"
         TOKEN_OUTPUT=$(docker compose exec -T ntfy ntfy token add \
-          --user="$ADMIN_USER" \
           --label="$LABEL" \
-          "$PERMS" 2>/dev/null | grep -oP 'tk_[a-zA-Z0-9]+' | tail -1)
+          "$ADMIN_USER" 2>/dev/null | grep -oP 'tk_[a-zA-Z0-9]+' | tail -1)
 
         if [ -n "$TOKEN_OUTPUT" ]; then
           UPDATED_JSON+="\"$LABEL\":\"$TOKEN_OUTPUT\","
