@@ -87,6 +87,20 @@
   no_log: true
   when: ntfy_admin_exists.rc != 0
 
+# ── Create additional users ─────────────────────────────────────────────
+
+- name: Create additional ntfy users
+  ansible.builtin.shell:
+    cmd: |
+      docker compose exec -T -e NTFY_PASSWORD='{{ item.password }}' \
+        ntfy ntfy user add --role={{ item.role | default("user") }} \
+          --ignore-exists '{{ item.username }}'
+    executable: /bin/bash
+    chdir: /opt/vps-devops/ntfy
+  changed_when: true
+  no_log: true
+  loop: "{{ ntfy_secrets.ntfy_users | default([]) }}"
+
 # ── Configure access rules ────────────────────────────────────────────────
 
 - name: Apply ntfy topic access rules
@@ -97,6 +111,7 @@
     executable: /bin/bash
     chdir: /opt/vps-devops/ntfy
   changed_when: true
+  failed_when: false
   no_log: true
   loop: "{{ ntfy_secrets.ntfy_access | default([]) }}"
 
